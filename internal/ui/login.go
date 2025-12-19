@@ -12,6 +12,7 @@ import (
 
 	"maily/internal/auth"
 	"maily/internal/gmail"
+	"maily/internal/ui/components"
 )
 
 type loginState int
@@ -67,7 +68,7 @@ func NewLoginApp(provider string) LoginApp {
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = SpinnerStyle
+	s.Style = components.SpinnerStyle
 
 	return LoginApp{
 		provider:      provider,

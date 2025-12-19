@@ -12,6 +12,7 @@ import (
 
 	"maily/internal/auth"
 	"maily/internal/gmail"
+	"maily/internal/ui/components"
 )
 
 type searchState int
@@ -65,7 +66,7 @@ type actionCompleteMsg struct {
 func NewSearchApp(account *auth.Account, query string) SearchApp {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = SpinnerStyle
+	s.Style = components.SpinnerStyle
 
 	return SearchApp{
 		account:  account,
@@ -309,7 +310,7 @@ func (a SearchApp) View() string {
 			a.height-4,
 			lipgloss.Center,
 			lipgloss.Center,
-			SuccessStyle.Render(a.message+"\n\nPress Enter or q to exit."),
+			components.SuccessStyle.Render(a.message+"\n\nPress Enter or q to exit."),
 		)
 
 	case searchStateError:
@@ -318,7 +319,7 @@ func (a SearchApp) View() string {
 			a.height-4,
 			lipgloss.Center,
 			lipgloss.Center,
-			ErrorStyle.Render(fmt.Sprintf("Error: %v\n\nPress Enter or q to exit.", a.err)),
+			components.ErrorStyle.Render(fmt.Sprintf("Error: %v\n\nPress Enter or q to exit.", a.err)),
 		)
 	}
 
@@ -331,13 +332,13 @@ func (a SearchApp) View() string {
 }
 
 func (a SearchApp) renderHeader() string {
-	title := TitleStyle.Render(" MAILY SEARCH ")
+	title := components.TitleStyle.Render(" MAILY SEARCH ")
 
 	queryInfo := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#9CA3AF")).
 		Render(fmt.Sprintf("Query: %s", a.query))
 
-	return HeaderStyle.Width(a.width).Render(title + "  " + queryInfo)
+	return components.HeaderStyle.Width(a.width).Render(title + "  " + queryInfo)
 }
 
 func (a SearchApp) renderResults() string {
@@ -481,25 +482,25 @@ func (a SearchApp) renderStatusBar() string {
 				Render(fmt.Sprintf(" %d selected ", count))
 		}
 
-		help = HelpKeyStyle.Render("space") + HelpDescStyle.Render(" toggle  ") +
-			HelpKeyStyle.Render("a") + HelpDescStyle.Render(" all  ") +
-			HelpKeyStyle.Render("d") + HelpDescStyle.Render(" delete  ") +
-			HelpKeyStyle.Render("e") + HelpDescStyle.Render(" archive  ") +
-			HelpKeyStyle.Render("r") + HelpDescStyle.Render(" mark read  ") +
-			HelpKeyStyle.Render("q") + HelpDescStyle.Render(" quit") +
+		help = components.HelpKeyStyle.Render("space") + components.HelpDescStyle.Render(" toggle  ") +
+			components.HelpKeyStyle.Render("a") + components.HelpDescStyle.Render(" all  ") +
+			components.HelpKeyStyle.Render("d") + components.HelpDescStyle.Render(" delete  ") +
+			components.HelpKeyStyle.Render("e") + components.HelpDescStyle.Render(" archive  ") +
+			components.HelpKeyStyle.Render("r") + components.HelpDescStyle.Render(" mark read  ") +
+			components.HelpKeyStyle.Render("q") + components.HelpDescStyle.Render(" quit") +
 			selectedInfo
 	default:
 		help = ""
 	}
 
-	status := StatusKeyStyle.Render(fmt.Sprintf("%d emails", len(a.emails)))
+	status := components.StatusKeyStyle.Render(fmt.Sprintf("%d emails", len(a.emails)))
 
 	gap := a.width - lipgloss.Width(help) - lipgloss.Width(status) - 4
 	if gap < 0 {
 		gap = 0
 	}
 
-	return StatusBarStyle.Width(a.width).Render(
+	return components.StatusBarStyle.Width(a.width).Render(
 		help + strings.Repeat(" ", gap) + status,
 	)
 }

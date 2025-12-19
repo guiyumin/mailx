@@ -2,9 +2,9 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -51,6 +51,12 @@ type App struct {
 	statusMsg     string
 	confirmDelete bool
 	emailLimit    uint32
+
+	// Search
+	searchInput    textinput.Model
+	searchMode     bool // typing search query
+	isSearchResult bool // showing search results
+	inboxCache     []gmail.Email
 }
 
 type emailsLoadedMsg struct {
@@ -65,21 +71,32 @@ type clientReadyMsg struct {
 	imap *gmail.IMAPClient
 }
 
+type appSearchResultsMsg struct {
+	emails []gmail.Email
+	query  string
+}
+
 func NewApp(store *auth.AccountStore) App {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = SpinnerStyle
+	s.Style = components.SpinnerStyle
+
+	si := textinput.New()
+	si.Placeholder = "Search emails..."
+	si.CharLimit = 200
+	si.Width = 40
 
 	return App{
-		store:      store,
-		accountIdx: 0,
-		imapCache:  make(map[int]*gmail.IMAPClient),
-		emailCache: make(map[int][]gmail.Email),
-		mailList:   components.NewMailList(),
-		spinner:    s,
-		state:      stateLoading,
-		view:       listView,
-		emailLimit: 50,
+		store:       store,
+		accountIdx:  0,
+		imapCache:   make(map[int]*gmail.IMAPClient),
+		emailCache:  make(map[int][]gmail.Email),
+		mailList:    components.NewMailList(),
+		spinner:     s,
+		state:       stateLoading,
+		view:        listView,
+		emailLimit:  50,
+		searchInput: si,
 	}
 }
 
@@ -97,38 +114,39 @@ func (a App) Init() tea.Cmd {
 	)
 }
 
-func (a App) initClient() tea.Cmd {
-	account := a.currentAccount()
-	if account == nil {
-		return func() tea.Msg {
-			return errorMsg{err: fmt.Errorf("no account configured")}
-		}
-	}
-	creds := &account.Credentials
-	return func() tea.Msg {
-		client, err := gmail.NewIMAPClient(creds)
-		if err != nil {
-			return errorMsg{err: err}
-		}
-		return clientReadyMsg{imap: client}
-	}
-}
-
-func (a *App) loadEmails() tea.Cmd {
-	return func() tea.Msg {
-		emails, err := a.imap.FetchMessages("INBOX", a.emailLimit)
-		if err != nil {
-			return errorMsg{err: err}
-		}
-		return emailsLoadedMsg{emails: emails}
-	}
-}
-
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle search mode input
+		if a.searchMode {
+			switch msg.String() {
+			case "esc":
+				a.searchMode = false
+				a.searchInput.Blur()
+				a.searchInput.SetValue("")
+			case "enter":
+				query := a.searchInput.Value()
+				if query != "" {
+					a.searchMode = false
+					a.searchInput.Blur()
+					a.state = stateLoading
+					a.statusMsg = "Searching..."
+					// Cache inbox before search
+					if !a.isSearchResult {
+						a.inboxCache = a.mailList.Emails()
+					}
+					return a, tea.Batch(a.spinner.Tick, a.executeSearch(query))
+				}
+			default:
+				var cmd tea.Cmd
+				a.searchInput, cmd = a.searchInput.Update(msg)
+				return a, cmd
+			}
+			return a, nil
+		}
+
 		switch msg.String() {
 		case "ctrl+c", "q":
 			// Close all cached IMAP connections
@@ -145,8 +163,19 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.confirmDelete {
 				a.confirmDelete = false
 				a.statusMsg = ""
+			} else if a.isSearchResult {
+				// Exit search results, restore inbox
+				a.isSearchResult = false
+				a.mailList.SetEmails(a.inboxCache)
+				a.statusMsg = fmt.Sprintf("%d emails", len(a.inboxCache))
 			} else if a.view == readView {
 				a.view = listView
+			}
+		case "/":
+			if a.view == listView && a.state == stateReady && !a.confirmDelete {
+				a.searchMode = true
+				a.searchInput.Focus()
+				return a, textinput.Blink
 			}
 		case "enter":
 			if a.view == listView && a.state == stateReady {
@@ -163,7 +192,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "r":
-			if a.state == stateReady {
+			if a.state == stateReady && !a.isSearchResult {
 				a.state = stateLoading
 				a.statusMsg = "Refreshing..."
 				return a, tea.Batch(a.spinner.Tick, a.loadEmails())
@@ -193,14 +222,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.statusMsg = ""
 			}
 		case "l":
-			if a.view == listView && a.state == stateReady && !a.confirmDelete {
+			if a.view == listView && a.state == stateReady && !a.confirmDelete && !a.isSearchResult {
 				a.emailLimit += 50
 				a.state = stateLoading
 				a.statusMsg = fmt.Sprintf("Loading %d emails...", a.emailLimit)
 				return a, tea.Batch(a.spinner.Tick, a.loadEmails())
 			}
 		case "tab":
-			if len(a.store.Accounts) > 1 && !a.confirmDelete {
+			if len(a.store.Accounts) > 1 && !a.confirmDelete && !a.isSearchResult {
 				// Save current emails to cache
 				if emails := a.mailList.Emails(); len(emails) > 0 {
 					a.emailCache[a.accountIdx] = emails
@@ -280,6 +309,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case errorMsg:
 		a.state = stateError
 		a.err = msg.err
+
+	case appSearchResultsMsg:
+		a.mailList.SetEmails(msg.emails)
+		a.state = stateReady
+		a.isSearchResult = true
+		if len(msg.emails) == 0 {
+			a.statusMsg = fmt.Sprintf("No results for '%s'", msg.query)
+		} else {
+			a.statusMsg = fmt.Sprintf("%d results for '%s'", len(msg.emails), msg.query)
+		}
 	}
 
 	if a.view == listView && a.state == stateReady {
@@ -306,135 +345,64 @@ func (a App) View() string {
 
 	switch a.state {
 	case stateLoading:
-		content = lipgloss.Place(
-			a.width,
-			a.height-4,
-			lipgloss.Center,
-			lipgloss.Center,
-			fmt.Sprintf("%s %s", a.spinner.View(), a.statusMsg),
-		)
+		content = components.RenderLoading(a.width, a.height, a.spinner.View(), a.statusMsg)
 	case stateError:
-		content = lipgloss.Place(
-			a.width,
-			a.height-4,
-			lipgloss.Center,
-			lipgloss.Center,
-			ErrorStyle.Render(fmt.Sprintf("Error: %v", a.err)),
-		)
+		content = components.RenderError(a.width, a.height, a.err)
 	case stateReady:
 		switch a.view {
 		case listView:
-			content = a.renderListView()
+			content = components.RenderListView(a.width, a.height, a.mailList.View())
 		case readView:
-			content = a.renderReadView()
+			if email := a.mailList.SelectedEmail(); email != nil {
+				emailData := components.EmailViewData{
+					From:    email.From,
+					To:      email.To,
+					Subject: email.Subject,
+					Date:    email.Date,
+				}
+				content = components.RenderReadView(emailData, a.width, a.viewport.View())
+			}
 		default:
-			content = a.renderListView()
+			content = components.RenderListView(a.width, a.height, a.mailList.View())
 		}
 	}
 
 	// Show confirmation dialog overlay
 	if a.confirmDelete {
-		dialog := a.renderConfirmDialog()
-		content = lipgloss.Place(
-			a.width,
-			a.height-4,
-			lipgloss.Center,
-			lipgloss.Center,
-			dialog,
-		)
+		content = components.RenderCentered(a.width, a.height, components.RenderConfirmDialog())
+	}
+
+	// Show search input overlay
+	if a.searchMode {
+		content = components.RenderCentered(a.width, a.height, components.RenderSearchInput(a.searchInput.View()))
+	}
+
+	// Build header data
+	var accounts []string
+	for _, acc := range a.store.Accounts {
+		accounts = append(accounts, acc.Credentials.Email)
+	}
+	headerData := components.HeaderData{
+		Width:     a.width,
+		Accounts:  accounts,
+		ActiveIdx: a.accountIdx,
+	}
+
+	// Build status bar data
+	statusData := components.StatusBarData{
+		Width:          a.width,
+		StatusMsg:      a.statusMsg,
+		SearchMode:     a.searchMode,
+		IsSearchResult: a.isSearchResult,
+		IsListView:     a.view == listView,
+		AccountCount:   len(a.store.Accounts),
 	}
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		a.renderHeader(),
+		components.RenderHeader(headerData),
 		content,
-		a.renderStatusBar(),
-	)
-}
-
-func (a App) renderConfirmDialog() string {
-	dialogStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#EF4444")).
-		Padding(1, 3).
-		Align(lipgloss.Center)
-
-	title := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#EF4444")).
-		Render("Delete Email?")
-
-	hint := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#9CA3AF")).
-		Render("press y to confirm, n to cancel")
-
-	return dialogStyle.Render(
-		lipgloss.JoinVertical(
-			lipgloss.Center,
-			title,
-			"",
-			hint,
-		),
-	)
-}
-
-func (a App) renderHeader() string {
-	title := TitleStyle.Render(" MAILY ")
-
-	// Render account tabs
-	var tabs []string
-	activeTabStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#F9FAFB")).
-		Background(lipgloss.Color("#7C3AED")).
-		Padding(0, 1)
-	inactiveTabStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#9CA3AF")).
-		Padding(0, 1)
-
-	for i, acc := range a.store.Accounts {
-		email := acc.Credentials.Email
-		if i == a.accountIdx {
-			tabs = append(tabs, activeTabStyle.Render(email))
-		} else {
-			tabs = append(tabs, inactiveTabStyle.Render(email))
-		}
-	}
-
-	tabsStr := strings.Join(tabs, " ")
-	return HeaderStyle.Width(a.width).Render(title + " " + tabsStr)
-}
-
-func (a App) renderListView() string {
-	return lipgloss.NewStyle().
-		Width(a.width).
-		Height(a.height - 6).
-		Render(a.mailList.View())
-}
-
-func (a App) renderReadView() string {
-	email := a.mailList.SelectedEmail()
-	if email == nil {
-		return ""
-	}
-
-	headerContent := lipgloss.JoinVertical(
-		lipgloss.Left,
-		FromStyle.Render("From: ")+email.From,
-		"To: "+email.To,
-		SubjectStyle.Render("Subject: ")+email.Subject,
-		DateStyle.Render(email.Date.Format("Mon, 02 Jan 2006 15:04:05")),
-		strings.Repeat("─", a.width-12),
-	)
-
-	header := lipgloss.NewStyle().
-		PaddingLeft(4).
-		PaddingRight(4).
-		Render(headerContent)
-
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		header,
-		a.viewport.View(),
+		components.RenderStatusBar(statusData),
 	)
 }
 
@@ -444,36 +412,4 @@ func (a App) renderEmailContent(email gmail.Email) string {
 		body = email.Snippet
 	}
 	return body
-}
-
-func (a App) renderStatusBar() string {
-	var help string
-	tabHint := ""
-	if len(a.store.Accounts) > 1 {
-		tabHint = HelpKeyStyle.Render("tab") + HelpDescStyle.Render(" switch  ")
-	}
-	if a.view == listView {
-		help = tabHint +
-			HelpKeyStyle.Render("j/k") + HelpDescStyle.Render(" navigate  ") +
-			HelpKeyStyle.Render("enter") + HelpDescStyle.Render(" open  ") +
-			HelpKeyStyle.Render("r") + HelpDescStyle.Render(" refresh  ") +
-			HelpKeyStyle.Render("d") + HelpDescStyle.Render(" delete  ") +
-			HelpKeyStyle.Render("q") + HelpDescStyle.Render(" quit")
-	} else {
-		help = tabHint +
-			HelpKeyStyle.Render("esc") + HelpDescStyle.Render(" back  ") +
-			HelpKeyStyle.Render("j/k") + HelpDescStyle.Render(" scroll  ") +
-			HelpKeyStyle.Render("q") + HelpDescStyle.Render(" quit")
-	}
-
-	status := StatusKeyStyle.Render(a.statusMsg)
-
-	gap := a.width - lipgloss.Width(help) - lipgloss.Width(status) - 12
-	if gap < 0 {
-		gap = 0
-	}
-
-	return StatusBarStyle.Width(a.width).PaddingLeft(4).PaddingRight(4).Render(
-		help + strings.Repeat(" ", gap) + status,
-	)
 }
