@@ -2,49 +2,96 @@ package main
 
 import (
 	"bufio"
-	"flag"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/spf13/cobra"
 	"maily/internal/auth"
 	"maily/internal/ui"
 )
 
-func main() {
-	if len(os.Args) < 2 {
+var rootCmd = &cobra.Command{
+	Use:   "maily",
+	Short: "A terminal email client",
+	Long:  "maily - A terminal email client for Gmail",
+	Run: func(cmd *cobra.Command, args []string) {
 		runTUI()
-		return
-	}
+	},
+}
 
-	switch os.Args[1] {
-	case "login":
-		if len(os.Args) < 3 {
-			fmt.Println("Usage: maily login <provider>")
-			fmt.Println()
-			fmt.Println("Providers:")
-			fmt.Println("  gmail    Login with Gmail")
-			os.Exit(1)
+var loginCmd = &cobra.Command{
+	Use:   "login [provider]",
+	Short: "Add an email account",
+	Long:  "Add an email account. Currently supports: gmail",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		handleLogin(args[0])
+	},
+}
+
+var logoutCmd = &cobra.Command{
+	Use:   "logout [email]",
+	Short: "Remove an account",
+	Long:  "Remove an email account. If no email specified, prompts for selection.",
+	Args:  cobra.MaximumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		if len(args) > 0 {
+			handleLogoutAccount(args[0])
+		} else {
+			handleLogout()
 		}
-		handleLogin(os.Args[2])
+	},
+}
 
-	case "logout":
-		handleLogout()
-
-	case "accounts":
+var accountsCmd = &cobra.Command{
+	Use:   "accounts",
+	Short: "List all accounts",
+	Run: func(cmd *cobra.Command, args []string) {
 		handleAccounts()
+	},
+}
 
-	case "search":
+var (
+	searchAccount string
+	searchQuery   string
+)
+
+var searchCmd = &cobra.Command{
+	Use:   "search",
+	Short: "Search emails with Gmail query syntax",
+	Long: `Search emails using Gmail's search syntax.
+
+Gmail search syntax examples:
+  from:sender@example.com    Emails from a sender
+  subject:hello              Emails with subject containing 'hello'
+  has:attachment             Emails with attachments
+  is:unread                  Unread emails
+  older_than:30d             Emails older than 30 days
+  category:promotions        Promotional emails
+  larger:5M                  Emails larger than 5MB`,
+	Example: `  maily search -a me@gmail.com -q "category:promotions older_than:30d"
+  maily search --account=me@gmail.com --query="is:unread"`,
+	Run: func(cmd *cobra.Command, args []string) {
 		handleSearch()
+	},
+}
 
-	case "help", "--help", "-h":
-		printHelp()
+func init() {
+	searchCmd.Flags().StringVarP(&searchAccount, "account", "a", "", "Account email to search")
+	searchCmd.Flags().StringVarP(&searchQuery, "query", "q", "", "Gmail search query (uses Gmail syntax)")
+	searchCmd.MarkFlagRequired("query")
 
-	default:
-		fmt.Printf("Unknown command: %s\n", os.Args[1])
-		printHelp()
+	rootCmd.AddCommand(loginCmd)
+	rootCmd.AddCommand(logoutCmd)
+	rootCmd.AddCommand(accountsCmd)
+	rootCmd.AddCommand(searchCmd)
+}
+
+func main() {
+	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
@@ -101,6 +148,21 @@ func loginGmail() {
 	}
 }
 
+func handleLogoutAccount(email string) {
+	store, err := auth.LoadAccountStore()
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if store.RemoveAccount(email) {
+		store.Save()
+		fmt.Printf("Removed account %s\n", email)
+	} else {
+		fmt.Printf("Account not found: %s\n", email)
+	}
+}
+
 func handleLogout() {
 	store, err := auth.LoadAccountStore()
 	if err != nil {
@@ -113,24 +175,12 @@ func handleLogout() {
 		return
 	}
 
-	// If specific account provided
-	if len(os.Args) >= 3 {
-		email := os.Args[2]
-		if store.RemoveAccount(email) {
-			store.Save()
-			fmt.Printf("✓ Removed account %s\n", email)
-		} else {
-			fmt.Printf("Account not found: %s\n", email)
-		}
-		return
-	}
-
 	// If only one account, remove it
 	if len(store.Accounts) == 1 {
 		email := store.Accounts[0].Credentials.Email
 		store.RemoveAccount(email)
 		store.Save()
-		fmt.Printf("✓ Removed account %s\n", email)
+		fmt.Printf("Removed account %s\n", email)
 		return
 	}
 
@@ -162,7 +212,7 @@ func handleLogout() {
 	email := store.Accounts[num-1].Credentials.Email
 	store.RemoveAccount(email)
 	store.Save()
-	fmt.Printf("✓ Removed account %s\n", email)
+	fmt.Printf("Removed account %s\n", email)
 }
 
 func handleAccounts() {
@@ -181,45 +231,16 @@ func handleAccounts() {
 
 	fmt.Println()
 	fmt.Println("  Accounts:")
-	fmt.Println("  ─────────")
+	fmt.Println()
 	for _, acc := range store.Accounts {
-		fmt.Printf("  • %s (%s)\n", acc.Credentials.Email, acc.Provider)
+		fmt.Printf("  %s (%s)\n", acc.Credentials.Email, acc.Provider)
 	}
 	fmt.Println()
 }
 
 func handleSearch() {
-	searchCmd := flag.NewFlagSet("search", flag.ExitOnError)
-	fromFlag := searchCmd.String("from", "", "Account email to search from")
-	queryFlag := searchCmd.String("query", "", "Gmail search query (uses Gmail syntax)")
-
-	searchCmd.Usage = func() {
-		fmt.Println("Usage: maily search --from=<account> --query=\"<query>\"")
-		fmt.Println()
-		fmt.Println("Options:")
-		searchCmd.PrintDefaults()
-		fmt.Println()
-		fmt.Println("Gmail search syntax examples:")
-		fmt.Println("  from:sender@example.com    Emails from a sender")
-		fmt.Println("  subject:hello              Emails with subject containing 'hello'")
-		fmt.Println("  has:attachment             Emails with attachments")
-		fmt.Println("  is:unread                  Unread emails")
-		fmt.Println("  older_than:30d             Emails older than 30 days")
-		fmt.Println("  category:promotions        Promotional emails")
-		fmt.Println("  larger:5M                  Emails larger than 5MB")
-		fmt.Println()
-		fmt.Println("Example:")
-		fmt.Println("  maily search --from=me@gmail.com --query=\"category:promotions older_than:30d\"")
-	}
-
-	if err := searchCmd.Parse(os.Args[2:]); err != nil {
-		os.Exit(1)
-	}
-
-	if *queryFlag == "" {
-		fmt.Println("Error: --query is required")
-		fmt.Println()
-		searchCmd.Usage()
+	if searchQuery == "" {
+		fmt.Println("Error: --query (-q) is required")
 		os.Exit(1)
 	}
 
@@ -239,11 +260,11 @@ func handleSearch() {
 
 	// Find the account
 	var account *auth.Account
-	if *fromFlag == "" {
+	if searchAccount == "" {
 		if len(store.Accounts) == 1 {
 			account = &store.Accounts[0]
 		} else {
-			fmt.Println("Error: --from is required when multiple accounts are configured")
+			fmt.Println("Error: --account (-a) is required when multiple accounts are configured")
 			fmt.Println()
 			fmt.Println("Available accounts:")
 			for _, acc := range store.Accounts {
@@ -252,9 +273,9 @@ func handleSearch() {
 			os.Exit(1)
 		}
 	} else {
-		account = store.GetAccount(*fromFlag)
+		account = store.GetAccount(searchAccount)
 		if account == nil {
-			fmt.Printf("Error: account '%s' not found\n", *fromFlag)
+			fmt.Printf("Error: account '%s' not found\n", searchAccount)
 			fmt.Println()
 			fmt.Println("Available accounts:")
 			for _, acc := range store.Accounts {
@@ -266,7 +287,7 @@ func handleSearch() {
 
 	// Run the search TUI
 	p := tea.NewProgram(
-		ui.NewSearchApp(account, *queryFlag),
+		ui.NewSearchApp(account, searchQuery),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)
@@ -275,26 +296,4 @@ func handleSearch() {
 		fmt.Printf("Error running search: %v\n", err)
 		os.Exit(1)
 	}
-}
-
-func printHelp() {
-	fmt.Println("maily - A terminal email client")
-	fmt.Println()
-	fmt.Println("Usage:")
-	fmt.Println("  maily                Start the email client")
-	fmt.Println("  maily login gmail    Add a Gmail account")
-	fmt.Println("  maily accounts       List all accounts")
-	fmt.Println("  maily logout         Remove an account")
-	fmt.Println("  maily search         Search emails with Gmail query syntax")
-	fmt.Println("  maily help           Show this help")
-	fmt.Println()
-	fmt.Println("Keyboard shortcuts (in client):")
-	fmt.Println("  tab      Switch account")
-	fmt.Println("  j/k      Navigate up/down")
-	fmt.Println("  enter    Open email")
-	fmt.Println("  esc      Go back")
-	fmt.Println("  r        Refresh")
-	fmt.Println("  l        Load more")
-	fmt.Println("  d        Delete")
-	fmt.Println("  q        Quit")
 }
