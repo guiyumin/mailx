@@ -320,22 +320,19 @@ func (c *IMAPClient) MarkMessagesAsRead(uids []imap.UID) error {
 	return c.client.Store(uidSet, storeFlags, nil).Close()
 }
 
-// SearchMessages searches for emails using Gmail's X-GM-RAW extension
-// The query uses Gmail's native search syntax (from:, has:attachment, older_than:, etc.)
+// SearchMessages searches for emails using IMAP BODY search
+// The query searches in the body of messages
 func (c *IMAPClient) SearchMessages(mailbox string, query string) ([]Email, error) {
 	_, err := c.client.Select(mailbox, nil).Wait()
 	if err != nil {
 		return nil, fmt.Errorf("failed to select mailbox: %w", err)
 	}
 
-	// Use X-GM-RAW for Gmail's native search
 	searchCriteria := &imap.SearchCriteria{
-		Header: []imap.SearchCriteriaHeaderField{
-			{Key: "X-GM-RAW", Value: query},
-		},
+		Body: []string{query},
 	}
 
-	searchData, err := c.client.Search(searchCriteria, nil).Wait()
+	searchData, err := c.client.UIDSearch(searchCriteria, nil).Wait()
 	if err != nil {
 		return nil, fmt.Errorf("search failed: %w", err)
 	}

@@ -163,6 +163,9 @@ func (a SearchApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Store the IMAP client for later actions
 		client, _ := gmail.NewIMAPClient(&a.account.Credentials)
+		if client != nil {
+			client.SelectMailbox("INBOX")
+		}
 		a.imap = client
 
 	case searchErrorMsg:
