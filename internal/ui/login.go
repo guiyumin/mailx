@@ -121,11 +121,12 @@ func (a LoginApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 			case "enter":
-				if a.focusedField == fieldEmail {
+				switch a.focusedField {
+				case fieldEmail:
 					a.focusedField = fieldPassword
 					a.emailInput.Blur()
 					a.passwordInput.Focus()
-				} else if a.focusedField == fieldPassword {
+				case fieldPassword:
 					if a.emailInput.Value() != "" && a.passwordInput.Value() != "" {
 						a.state = loginStateVerifying
 						return a, tea.Batch(a.spinner.Tick, a.verifyCredentials())
@@ -286,7 +287,7 @@ func (a LoginApp) renderInputForm() string {
 		Foreground(lipgloss.Color("#F9FAFB")).
 		Width(12)
 
-	focusedLabelStyle := labelStyle.Copy().
+	focusedLabelStyle := labelStyle.
 		Bold(true).
 		Foreground(lipgloss.Color("#7C3AED"))
 

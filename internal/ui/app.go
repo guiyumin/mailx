@@ -237,16 +237,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.state == stateReady && !a.confirmDelete {
 			switch msg.Button {
 			case tea.MouseButtonWheelUp:
-				if a.view == listView {
+				switch a.view {
+				case listView:
 					a.mailList.ScrollUp()
-				} else if a.view == readView {
-					a.viewport.LineUp(3)
+				case readView:
+					a.viewport.ScrollUp(3)
 				}
 			case tea.MouseButtonWheelDown:
-				if a.view == listView {
+				switch a.view {
+				case listView:
 					a.mailList.ScrollDown()
-				} else if a.view == readView {
-					a.viewport.LineDown(3)
+				case readView:
+					a.viewport.ScrollDown(3)
 				}
 			}
 		}
@@ -325,6 +327,8 @@ func (a App) View() string {
 			content = a.renderListView()
 		case readView:
 			content = a.renderReadView()
+		default:
+			content = a.renderListView()
 		}
 	}
 
