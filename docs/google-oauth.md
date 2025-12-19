@@ -85,3 +85,136 @@ Auth method: XOAUTH2
 3. Code to exchange the code for tokens
 4. Store refresh token in `~/.config/maily/`
 5. Use XOAUTH2 authentication with go-imap instead of plain password
+
+---
+
+# Implementation Plan
+
+## User Experience
+
+```
+$ maily login gmail --oauth
+
+  ██████████████████████████████████
+  ██████████████████████████████████
+  ████ ▄▄▄▄▄ █ ▄▄ █▄█▄█ ▄▄▄▄▄ ████
+  ████ █   █ █ ▀▀██▀▄ █ █   █ ████
+  ████ █▄▄▄█ █▀▄▀▀▀▄▄▀█ █▄▄▄█ ████
+  ████▄▄▄▄▄▄▄█▄▀▄█▄▀▄█▄▄▄▄▄▄▄████
+  ██████████████████████████████████
+
+  Scan QR code or open this URL:
+  https://accounts.google.com/o/oauth2/auth?...
+
+  Waiting for authorization...
+  (or press 'c' to enter code manually)
+
+  ✓ Successfully logged in as user@gmail.com
+```
+
+## Features
+
+1. **QR code in terminal** - Scan with phone to open auth URL
+2. **Localhost callback** - Automatic token capture (primary)
+3. **Manual code entry** - Fallback if localhost doesn't work
+
+## Files to Create
+
+### `internal/auth/oauth.go`
+OAuth flow implementation:
+- `StartOAuthFlow()` - Main entry point
+- `startLocalServer()` - Localhost callback server on random port
+- `generateAuthURL()` - Build Google OAuth URL with PKCE
+- `exchangeCodeForTokens()` - Token exchange
+- `RefreshAccessToken()` - Token refresh logic
+
+### `internal/auth/oauth_config.go`
+```go
+var OAuthConfig = &oauth2.Config{
+    ClientID:     "EMBEDDED_CLIENT_ID",
+    ClientSecret: "EMBEDDED_CLIENT_SECRET",
+    Scopes:       []string{"https://mail.google.com/"},
+    Endpoint:     google.Endpoint,
+}
+```
+
+### `internal/ui/oauth_login.go`
+TUI component with states:
+- `oauthStateWaiting` - Display QR code + URL
+- `oauthStateManualEntry` - Text input for code
+- `oauthStateExchanging` - Spinner during exchange
+- `oauthStateSuccess` / `oauthStateError`
+
+## Files to Modify
+
+### `internal/auth/credentials.go`
+```go
+type Credentials struct {
+    Email        string `yaml:"email"`
+    Password     string `yaml:"password,omitempty"`      // App password auth
+    AccessToken  string `yaml:"access_token,omitempty"`  // OAuth
+    RefreshToken string `yaml:"refresh_token,omitempty"` // OAuth
+    TokenExpiry  int64  `yaml:"token_expiry,omitempty"`  // Unix timestamp
+    AuthMethod   string `yaml:"auth_method"`             // "password" or "oauth"
+    IMAPHost     string `yaml:"imap_host"`
+    IMAPPort     int    `yaml:"imap_port"`
+    SMTPHost     string `yaml:"smtp_host"`
+    SMTPPort     int    `yaml:"smtp_port"`
+}
+```
+
+### `internal/cli/login.go`
+Add `--oauth` flag to route to OAuth flow.
+
+### `internal/gmail/imap.go`
+- Detect OAuth vs password auth
+- Use XOAUTH2 SASL mechanism
+- Auto-refresh expired tokens before connecting
+
+### `internal/gmail/smtp.go`
+Support XOAUTH2 for sending emails.
+
+## Dependencies
+
+```bash
+go get github.com/mdp/qrterminal/v3  # QR code in terminal
+go get golang.org/x/oauth2           # OAuth 2.0 client
+go get golang.org/x/oauth2/google    # Google endpoints
+```
+
+## OAuth URL Structure
+
+```
+https://accounts.google.com/o/oauth2/v2/auth?
+  client_id=CLIENT_ID&
+  redirect_uri=http://localhost:PORT/callback&
+  response_type=code&
+  scope=https://mail.google.com/&
+  state=RANDOM_STATE&
+  code_challenge=PKCE_CHALLENGE&
+  code_challenge_method=S256&
+  access_type=offline&
+  prompt=consent
+```
+
+## Security
+
+- **PKCE** (Proof Key for Code Exchange) for authorization flow
+- **State parameter** to prevent CSRF attacks
+- **File permissions** 0600 on accounts.yml (already implemented)
+- **Auto-refresh** tokens before expiry
+
+## Setup (One-time)
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create project "Maily"
+3. Enable Gmail API
+4. Configure OAuth consent screen (External)
+5. Create OAuth 2.0 credentials (Desktop app type)
+6. Embed Client ID and Secret in `oauth_config.go`
+
+## Notes
+
+- Unverified apps show Google warning (OK for personal use)
+- For public distribution, need Google app verification
+- App passwords remain supported as alternative
