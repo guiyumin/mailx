@@ -206,6 +206,35 @@ func truncateSnippet(s string) string {
 }
 
 func stripHTML(html string) string {
+	// Remove style blocks
+	for {
+		styleStart := strings.Index(strings.ToLower(html), "<style")
+		if styleStart == -1 {
+			break
+		}
+		styleEnd := strings.Index(strings.ToLower(html[styleStart:]), "</style>")
+		if styleEnd == -1 {
+			html = html[:styleStart]
+		} else {
+			html = html[:styleStart] + html[styleStart+styleEnd+8:]
+		}
+	}
+
+	// Remove script blocks
+	for {
+		scriptStart := strings.Index(strings.ToLower(html), "<script")
+		if scriptStart == -1 {
+			break
+		}
+		scriptEnd := strings.Index(strings.ToLower(html[scriptStart:]), "</script>")
+		if scriptEnd == -1 {
+			html = html[:scriptStart]
+		} else {
+			html = html[:scriptStart] + html[scriptStart+scriptEnd+9:]
+		}
+	}
+
+	// Remove HTML tags
 	var result strings.Builder
 	inTag := false
 	for _, r := range html {
@@ -213,11 +242,33 @@ func stripHTML(html string) string {
 			inTag = true
 		} else if r == '>' {
 			inTag = false
+			result.WriteRune(' ') // Replace tag with space
 		} else if !inTag {
 			result.WriteRune(r)
 		}
 	}
-	return strings.TrimSpace(result.String())
+
+	text := result.String()
+
+	// Decode common HTML entities
+	text = strings.ReplaceAll(text, "&nbsp;", " ")
+	text = strings.ReplaceAll(text, "&amp;", "&")
+	text = strings.ReplaceAll(text, "&lt;", "<")
+	text = strings.ReplaceAll(text, "&gt;", ">")
+	text = strings.ReplaceAll(text, "&quot;", "\"")
+	text = strings.ReplaceAll(text, "&#39;", "'")
+
+	// Clean up whitespace
+	lines := strings.Split(text, "\n")
+	var cleanLines []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			cleanLines = append(cleanLines, line)
+		}
+	}
+
+	return strings.Join(cleanLines, "\n")
 }
 
 func (c *IMAPClient) MarkAsRead(uid imap.UID) error {
@@ -346,9 +397,10 @@ func (c *IMAPClient) SearchMessages(mailbox string, query string) ([]Email, erro
 	}
 
 	fetchOptions := &imap.FetchOptions{
-		UID:      true,
-		Flags:    true,
-		Envelope: true,
+		UID:         true,
+		Flags:       true,
+		Envelope:    true,
+		BodySection: []*imap.FetchItemBodySection{{Peek: true}},
 	}
 
 	messages, err := c.client.Fetch(uidSet, fetchOptions).Collect()
@@ -360,6 +412,12 @@ func (c *IMAPClient) SearchMessages(mailbox string, query string) ([]Email, erro
 	for i := len(messages) - 1; i >= 0; i-- {
 		msg := messages[i]
 		email := c.parseMessageHeader(msg)
+		// Parse body if available
+		if len(msg.BodySection) > 0 {
+			body, snippet := c.parseBody(msg.BodySection[0].Bytes)
+			email.Body = body
+			email.Snippet = snippet
+		}
 		emails = append(emails, email)
 	}
 

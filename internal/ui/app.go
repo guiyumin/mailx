@@ -56,6 +56,7 @@ type App struct {
 	searchInput    textinput.Model
 	searchMode     bool // typing search query
 	isSearchResult bool // showing search results
+	searchQuery    string
 	inboxCache     []gmail.Email
 }
 
@@ -86,12 +87,16 @@ func NewApp(store *auth.AccountStore) App {
 	si.CharLimit = 200
 	si.Width = 40
 
+	vp := viewport.New(80, 24) // Default size, will be resized by WindowSizeMsg
+	vp.Style = lipgloss.NewStyle().Padding(1, 4, 3, 4)
+
 	return App{
 		store:       store,
 		accountIdx:  0,
 		imapCache:   make(map[int]*gmail.IMAPClient),
 		emailCache:  make(map[int][]gmail.Email),
 		mailList:    components.NewMailList(),
+		viewport:    vp,
 		spinner:     s,
 		state:       stateLoading,
 		view:        listView,
@@ -166,6 +171,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if a.isSearchResult {
 				// Exit search results, restore inbox
 				a.isSearchResult = false
+				a.searchQuery = ""
+				a.searchInput.SetValue("")
 				a.mailList.SetEmails(a.inboxCache)
 				a.statusMsg = fmt.Sprintf("%d emails", len(a.inboxCache))
 			} else if a.view == readView {
@@ -286,8 +293,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = msg.Width
 		a.height = msg.Height
 		a.mailList.SetSize(msg.Width, msg.Height-6)
-		a.viewport = viewport.New(msg.Width-8, msg.Height-8)
-		a.viewport.Style = lipgloss.NewStyle().Padding(1, 4, 3, 4)
+		a.viewport.Width = msg.Width - 8
+		a.viewport.Height = msg.Height - 8
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -314,6 +321,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.mailList.SetEmails(msg.emails)
 		a.state = stateReady
 		a.isSearchResult = true
+		a.searchQuery = msg.query
 		if len(msg.emails) == 0 {
 			a.statusMsg = fmt.Sprintf("No results for '%s'", msg.query)
 		} else {
@@ -383,9 +391,11 @@ func (a App) View() string {
 		accounts = append(accounts, acc.Credentials.Email)
 	}
 	headerData := components.HeaderData{
-		Width:     a.width,
-		Accounts:  accounts,
-		ActiveIdx: a.accountIdx,
+		Width:          a.width,
+		Accounts:       accounts,
+		ActiveIdx:      a.accountIdx,
+		IsSearchResult: a.isSearchResult,
+		SearchQuery:    a.searchQuery,
 	}
 
 	// Build status bar data

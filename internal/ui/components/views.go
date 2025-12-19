@@ -11,9 +11,11 @@ import (
 // Data structs for render functions
 
 type HeaderData struct {
-	Width      int
-	Accounts   []string
-	ActiveIdx  int
+	Width          int
+	Accounts       []string
+	ActiveIdx      int
+	IsSearchResult bool
+	SearchQuery    string
 }
 
 type StatusBarData struct {
@@ -36,6 +38,16 @@ type EmailViewData struct {
 
 func RenderHeader(data HeaderData) string {
 	title := TitleStyle.Render(" MAILY ")
+
+	// Show search indicator if in search mode
+	if data.IsSearchResult {
+		searchBadge := lipgloss.NewStyle().
+			Foreground(Text).
+			Background(Warning).
+			Padding(0, 1).
+			Render(fmt.Sprintf(" Search: %s ", data.SearchQuery))
+		return HeaderStyle.Width(data.Width).Render(title + " " + searchBadge)
+	}
 
 	var tabs []string
 	activeTabStyle := lipgloss.NewStyle().
