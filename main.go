@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"cocomail/internal/auth"
+	"cocomail/internal/gmail"
 	"cocomail/internal/ui"
 )
 
@@ -93,15 +94,34 @@ func loginGmail() {
 		os.Exit(1)
 	}
 
+	// Test connection before saving
+	fmt.Println()
+	fmt.Print("  Verifying credentials...")
+
+	client, err := gmail.NewIMAPClient(creds)
+	if err != nil {
+		fmt.Println(" ✗")
+		fmt.Println()
+		fmt.Printf("  Login failed: %v\n", err)
+		fmt.Println()
+		fmt.Println("  Make sure you:")
+		fmt.Println("  • Used an App Password (not your regular password)")
+		fmt.Println("  • Have IMAP enabled in Gmail settings")
+		fmt.Println()
+		os.Exit(1)
+	}
+	client.Close()
+	fmt.Println(" ✓")
+
 	if err := auth.SaveCredentials(creds); err != nil {
 		fmt.Printf("Error saving credentials: %v\n", err)
 		os.Exit(1)
 	}
 
 	fmt.Println()
-	fmt.Printf("✓ Logged in as %s\n", creds.Email)
+	fmt.Printf("  ✓ Logged in as %s\n", creds.Email)
 	fmt.Println()
-	fmt.Println("Run 'cocomail' to start.")
+	fmt.Println("  Run 'cocomail' to start.")
 }
 
 func handleLogout() {

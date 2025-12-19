@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"golang.org/x/term"
 )
@@ -103,8 +104,16 @@ func PromptGmailCredentials() (*Credentials, error) {
 	}
 	fmt.Println()
 
-	password := strings.TrimSpace(string(passwordBytes))
-	password = strings.ReplaceAll(password, " ", "")
+	password := string(passwordBytes)
+	// Strip ALL whitespace (spaces, tabs, newlines, etc.)
+	var cleaned strings.Builder
+	for _, r := range password {
+		if !unicode.IsSpace(r) {
+			cleaned.WriteRune(r)
+		}
+	}
+	password = cleaned.String()
+
 
 	creds := GmailCredentials(email, password)
 	return &creds, nil
