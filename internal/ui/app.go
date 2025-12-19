@@ -175,6 +175,24 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case tea.MouseMsg:
+		if a.state == stateReady && !a.confirmDelete {
+			switch msg.Button {
+			case tea.MouseButtonWheelUp:
+				if a.view == listView {
+					a.mailList.ScrollUp()
+				} else if a.view == readView {
+					a.viewport.LineUp(3)
+				}
+			case tea.MouseButtonWheelDown:
+				if a.view == listView {
+					a.mailList.ScrollDown()
+				} else if a.view == readView {
+					a.viewport.LineDown(3)
+				}
+			}
+		}
+
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
 		a.height = msg.Height

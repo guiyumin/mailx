@@ -96,7 +96,7 @@ func (c *IMAPClient) FetchMessages(mailbox string, limit uint32) ([]Email, error
 		UID:         true,
 		Flags:       true,
 		Envelope:    true,
-		BodySection: []*imap.FetchItemBodySection{{}},
+		BodySection: []*imap.FetchItemBodySection{{Peek: true}},
 	}
 
 	messages, err := c.client.Fetch(seqSet, fetchOptions).Collect()

@@ -87,6 +87,18 @@ func (m *MailList) RemoveCurrent() {
 	}
 }
 
+func (m *MailList) ScrollUp() {
+	if m.cursor > 0 {
+		m.cursor--
+	}
+}
+
+func (m *MailList) ScrollDown() {
+	if m.cursor < len(m.emails)-1 {
+		m.cursor++
+	}
+}
+
 func (m MailList) SelectedEmail() *gmail.Email {
 	if len(m.emails) == 0 || m.cursor < 0 || m.cursor >= len(m.emails) {
 		return nil
