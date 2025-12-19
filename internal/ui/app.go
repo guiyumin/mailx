@@ -35,17 +35,18 @@ const (
 )
 
 type App struct {
-	creds     *auth.Credentials
-	imap      *gmail.IMAPClient
-	mailList  components.MailList
-	viewport  viewport.Model
-	spinner   spinner.Model
-	state     state
-	view      view
-	width     int
-	height    int
-	err       error
-	statusMsg string
+	creds         *auth.Credentials
+	imap          *gmail.IMAPClient
+	mailList      components.MailList
+	viewport      viewport.Model
+	spinner       spinner.Model
+	state         state
+	view          view
+	width         int
+	height        int
+	err           error
+	statusMsg     string
+	confirmDelete bool
 }
 
 type emailsLoadedMsg struct {
@@ -113,7 +114,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, tea.Quit
 		case "esc":
-			if a.view == readView {
+			if a.confirmDelete {
+				a.confirmDelete = false
+				a.statusMsg = ""
+			} else if a.view == readView {
 				a.view = listView
 			}
 		case "enter":
@@ -137,13 +141,29 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, tea.Batch(a.spinner.Tick, a.loadEmails())
 			}
 		case "d":
-			if a.view == listView && a.state == stateReady {
-				if email := a.mailList.SelectedEmail(); email != nil {
-					go func() {
-						a.imap.DeleteMessage(email.UID)
-					}()
-					a.statusMsg = "Email deleted"
+			if a.state == stateReady && !a.confirmDelete {
+				if a.mailList.SelectedEmail() != nil {
+					a.confirmDelete = true
+					a.statusMsg = "Delete this email? (y/n)"
 				}
+			}
+		case "y":
+			if a.confirmDelete {
+				if email := a.mailList.SelectedEmail(); email != nil {
+					uid := email.UID
+					a.mailList.RemoveCurrent()
+					a.statusMsg = "Deleted"
+					a.view = listView
+					go func() {
+						a.imap.DeleteMessage(uid)
+					}()
+				}
+				a.confirmDelete = false
+			}
+		case "n":
+			if a.confirmDelete {
+				a.confirmDelete = false
+				a.statusMsg = ""
 			}
 		}
 

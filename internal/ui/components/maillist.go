@@ -77,6 +77,16 @@ func (m *MailList) SetSize(width, height int) {
 	m.height = height
 }
 
+func (m *MailList) RemoveCurrent() {
+	if len(m.emails) == 0 || m.cursor < 0 || m.cursor >= len(m.emails) {
+		return
+	}
+	m.emails = append(m.emails[:m.cursor], m.emails[m.cursor+1:]...)
+	if m.cursor >= len(m.emails) && m.cursor > 0 {
+		m.cursor--
+	}
+}
+
 func (m MailList) SelectedEmail() *gmail.Email {
 	if len(m.emails) == 0 || m.cursor < 0 || m.cursor >= len(m.emails) {
 		return nil
@@ -148,18 +158,19 @@ func (m MailList) renderEmailLine(email gmail.Email, selected bool) string {
 	subject := truncate(email.Subject, maxWidth-35)
 	date := formatDate(email.Date)
 
-	unreadMarker := " "
+	status := "   "
 	if email.Unread {
-		unreadMarker = "●"
+		status = lipgloss.NewStyle().Foreground(lipgloss.Color("#3B82F6")).Render(" ● ")
 	}
 
-	line := fmt.Sprintf("%s %-20s │ %-*s │ %s",
-		unreadMarker,
+	line := fmt.Sprintf("%-20s │ %-*s │ %s",
 		from,
 		maxWidth-35,
 		subject,
 		date,
 	)
+
+	line = status + line
 
 	if selected {
 		return lipgloss.NewStyle().
