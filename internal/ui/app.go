@@ -255,8 +255,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = msg.Width
 		a.height = msg.Height
 		a.mailList.SetSize(msg.Width, msg.Height-6)
-		a.viewport = viewport.New(msg.Width-4, msg.Height-8)
-		a.viewport.Style = lipgloss.NewStyle().Padding(1, 2)
+		a.viewport = viewport.New(msg.Width-8, msg.Height-8)
+		a.viewport.Style = lipgloss.NewStyle().Padding(1, 4, 3, 4)
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -413,14 +413,19 @@ func (a App) renderReadView() string {
 		return ""
 	}
 
-	header := lipgloss.JoinVertical(
+	headerContent := lipgloss.JoinVertical(
 		lipgloss.Left,
 		FromStyle.Render("From: ")+email.From,
 		"To: "+email.To,
 		SubjectStyle.Render("Subject: ")+email.Subject,
 		DateStyle.Render(email.Date.Format("Mon, 02 Jan 2006 15:04:05")),
-		strings.Repeat("─", a.width-4),
+		strings.Repeat("─", a.width-12),
 	)
+
+	header := lipgloss.NewStyle().
+		PaddingLeft(4).
+		PaddingRight(4).
+		Render(headerContent)
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -459,12 +464,12 @@ func (a App) renderStatusBar() string {
 
 	status := StatusKeyStyle.Render(a.statusMsg)
 
-	gap := a.width - lipgloss.Width(help) - lipgloss.Width(status) - 4
+	gap := a.width - lipgloss.Width(help) - lipgloss.Width(status) - 12
 	if gap < 0 {
 		gap = 0
 	}
 
-	return StatusBarStyle.Width(a.width).Render(
+	return StatusBarStyle.Width(a.width).PaddingLeft(4).PaddingRight(4).Render(
 		help + strings.Repeat(" ", gap) + status,
 	)
 }

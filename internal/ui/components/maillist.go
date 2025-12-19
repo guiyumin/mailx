@@ -1,7 +1,6 @@
 package components
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -165,13 +164,19 @@ func (m MailList) View() string {
 }
 
 func (m MailList) renderEmailLine(email gmail.Email, selected bool) string {
-	maxWidth := m.width - 10
-	if maxWidth < 40 {
-		maxWidth = 80
+	dateWidth := 12
+	fromWidth := 20
+	statusWidth := 5
+	rightPadding := 4
+	spacing := 4  // spaces between columns
+
+	availableWidth := m.width - statusWidth - fromWidth - dateWidth - spacing - rightPadding
+	if availableWidth < 20 {
+		availableWidth = 20
 	}
 
-	from := truncate(extractName(email.From), 20)
-	subject := truncate(email.Subject, maxWidth-35)
+	from := truncate(extractName(email.From), fromWidth)
+	subject := truncate(email.Subject, availableWidth)
 	date := formatDate(email.Date)
 
 	// Status indicator - show read/unread
@@ -182,16 +187,14 @@ func (m MailList) renderEmailLine(email gmail.Email, selected bool) string {
 		status = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")).Render("  ○  ")
 	}
 
-	line := fmt.Sprintf("%-20s │ %-*s │ %s",
-		from,
-		maxWidth-35,
-		subject,
-		date,
-	)
+	fromStyle := lipgloss.NewStyle().Width(fromWidth)
+	subjectStyle := lipgloss.NewStyle().Width(availableWidth)
+	dateStyle := lipgloss.NewStyle().Width(dateWidth).Align(lipgloss.Right)
+
+	line := fromStyle.Render(from) + "  " + subjectStyle.Render(subject) + "  " + dateStyle.Render(date)
 
 	lineStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#F9FAFB")).
-		Width(m.width - 9)
+		Foreground(lipgloss.Color("#F9FAFB"))
 
 	if selected {
 		lineStyle = lineStyle.
@@ -224,12 +227,9 @@ func truncate(s string, maxLen int) string {
 func formatDate(t time.Time) string {
 	now := time.Now()
 	if t.Year() == now.Year() && t.YearDay() == now.YearDay() {
-		return t.Format("15:04")
+		return "Today " + t.Format("15:04")
 	}
-	if t.Year() == now.Year() {
-		return t.Format("Jan 02")
-	}
-	return t.Format("02/01/06")
+	return t.Format("Jan 02, 2006")
 }
 
 func max(a, b int) int {
