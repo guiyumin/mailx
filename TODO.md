@@ -41,12 +41,20 @@ Non-interactive CLI commands for quick bulk mail operations (useful for scriptin
 - [ ] `maily delete --older-than=<days>` - Delete emails older than N days
 - [ ] `maily mark-read --from=<sender>` - Mark all from sender as read
 - [ ] `maily archive --from=<sender>` - Archive emails from sender
-- [ ] Support combining filters (e.g., `--from` + `--older-than`)
+- [ ] `maily search <query>` - Search emails using Gmail's native query syntax (via X-GM-RAW)
+  - Supports full Gmail search: `from:`, `has:attachment`, `is:unread`, `older_than:`, `category:promotions`, `larger:5M`, `filename:pdf`, etc.
+- [ ] Support combining filters (e.g., `--from` + `--older-than` + `--subject`)
 - [ ] Add `--dry-run` flag to preview what would be affected
 - [ ] Add confirmation prompt for destructive actions (delete, archive)
   - Show count of affected emails before proceeding
   - Add `--yes` / `-y` flag to skip confirmation (for scripting)
 - [ ] Add `--account=<email>` flag for multi-account support
+- [ ] Saved recipes (inspired by imapfilter)
+  - `maily recipe save <name> "<query>"` - Save a search as a named recipe
+  - `maily recipe run <name> --delete|--archive|--mark-read` - Run saved recipe with action
+  - `maily recipe list` - List saved recipes
+  - Store in `~/.config/maily/recipes.yml`
+  - Example: `maily recipe save "old-promos" "category:promotions older_than:60d"`
 
 ## 6. Support OAuth Login (Future)
 
