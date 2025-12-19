@@ -389,10 +389,6 @@ func (a App) renderHeader() string {
 
 	for i, acc := range a.store.Accounts {
 		email := acc.Credentials.Email
-		// Shorten email for display
-		if at := strings.Index(email, "@"); at > 0 {
-			email = email[:at]
-		}
 		if i == a.accountIdx {
 			tabs = append(tabs, activeTabStyle.Render(email))
 		} else {
