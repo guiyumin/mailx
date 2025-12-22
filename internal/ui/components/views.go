@@ -94,6 +94,7 @@ func RenderStatusBar(data StatusBarData) string {
 			HelpKeyStyle.Render("enter") + HelpDescStyle.Render(" open  ") +
 			HelpKeyStyle.Render("/") + HelpDescStyle.Render(" search  ") +
 			HelpKeyStyle.Render("r") + HelpDescStyle.Render(" refresh  ") +
+			HelpKeyStyle.Render("l") + HelpDescStyle.Render(" load more  ") +
 			HelpKeyStyle.Render("d") + HelpDescStyle.Render(" delete  ") +
 			HelpKeyStyle.Render("q") + HelpDescStyle.Render(" quit")
 	} else {
