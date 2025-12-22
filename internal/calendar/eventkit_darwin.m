@@ -62,8 +62,11 @@ int GetAuthorizationStatus(void) {
                 return EK_AUTH_RESTRICTED;
             case EKAuthorizationStatusDenied:
                 return EK_AUTH_DENIED;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
             case EKAuthorizationStatusAuthorized:
                 return EK_AUTH_AUTHORIZED;
+#pragma clang diagnostic pop
             default:
                 return EK_AUTH_DENIED;
         }
@@ -95,10 +98,13 @@ int RequestCalendarAccess(void) {
                 dispatch_semaphore_signal(semaphore);
             }];
         } else {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
             [store requestAccessToEntityType:EKEntityTypeEvent completion:^(BOOL success, NSError *error) {
                 granted = success;
                 dispatch_semaphore_signal(semaphore);
             }];
+#pragma clang diagnostic pop
         }
 
         dispatch_semaphore_wait(semaphore, DISPATCH_TIME_FOREVER);

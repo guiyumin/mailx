@@ -23,6 +23,7 @@ const (
 	viewDeleteConfirm
 )
 
+
 // CalendarApp is the main calendar TUI model
 type CalendarApp struct {
 	client       calendar.Client
@@ -33,6 +34,7 @@ type CalendarApp struct {
 	calendars    []calendar.Calendar
 	selectedIdx  int // selected event index in the list
 	view         calendarView
+	pendingKey   string // for two-key combos like w+↓
 	err          error
 
 	// Form fields for add/edit
@@ -165,79 +167,84 @@ func (m *CalendarApp) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *CalendarApp) handleCalendarKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch {
-	case key.Matches(msg, keys.Quit):
-		return m, tea.Quit
+	k := msg.String()
 
-	case key.Matches(msg, keys.Left):
+	// Month/Year mode: m/y sets mode, up/down navigates, esc exits
+	if m.pendingKey != "" {
+		switch k {
+		case "up", "down":
+			dir := 1
+			if k == "up" {
+				dir = -1
+			}
+			switch m.pendingKey {
+			case "m":
+				m.selectedDate = m.selectedDate.AddDate(0, dir, 0)
+			case "y":
+				m.selectedDate = m.selectedDate.AddDate(dir, 0, 0)
+			}
+			m.selectedIdx = 0
+			return m, m.loadEvents()
+		case "esc", "q":
+			m.pendingKey = ""
+			return m, nil
+		case "m", "y":
+			m.pendingKey = k
+			return m, nil
+		default:
+			return m, nil // Ignore other keys in mode
+		}
+	}
+
+	switch k {
+	case "m", "y":
+		m.pendingKey = k
+		return m, nil
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "left":
 		m.selectedDate = m.selectedDate.AddDate(0, 0, -1)
 		m.selectedIdx = 0
-		return m, nil
-
-	case key.Matches(msg, keys.Right):
+	case "right":
 		m.selectedDate = m.selectedDate.AddDate(0, 0, 1)
 		m.selectedIdx = 0
-		return m, nil
-
-	case key.Matches(msg, keys.Up):
-		// Move up in event list, or up a week if at top
-		dayEvents := m.eventsForDate(m.selectedDate)
-		if m.selectedIdx > 0 {
-			m.selectedIdx--
-		} else {
-			m.selectedDate = m.selectedDate.AddDate(0, 0, -7)
-			m.selectedIdx = 0
-		}
-		_ = dayEvents
-		return m, nil
-
-	case key.Matches(msg, keys.Down):
-		// Move down in event list, or down a week if at bottom
-		dayEvents := m.eventsForDate(m.selectedDate)
-		if m.selectedIdx < len(dayEvents)-1 {
-			m.selectedIdx++
-		} else {
-			m.selectedDate = m.selectedDate.AddDate(0, 0, 7)
-			m.selectedIdx = 0
-		}
-		return m, nil
-
-	case key.Matches(msg, keys.PrevMonth):
-		m.selectedDate = m.selectedDate.AddDate(0, -1, 0)
+	case "up":
+		m.selectedDate = m.selectedDate.AddDate(0, 0, -7)
 		m.selectedIdx = 0
 		return m, m.loadEvents()
-
-	case key.Matches(msg, keys.NextMonth):
-		m.selectedDate = m.selectedDate.AddDate(0, 1, 0)
+	case "down":
+		m.selectedDate = m.selectedDate.AddDate(0, 0, 7)
 		m.selectedIdx = 0
 		return m, m.loadEvents()
-
-	case key.Matches(msg, keys.Today):
+	case "tab":
+		dayEvents := m.eventsForDate(m.selectedDate)
+		if len(dayEvents) > 0 {
+			m.selectedIdx = (m.selectedIdx + 1) % len(dayEvents)
+		}
+	case "shift+tab":
+		dayEvents := m.eventsForDate(m.selectedDate)
+		if len(dayEvents) > 0 {
+			m.selectedIdx = (m.selectedIdx + len(dayEvents) - 1) % len(dayEvents)
+		}
+	case "t":
 		m.selectedDate = time.Now()
 		m.selectedIdx = 0
 		return m, m.loadEvents()
-
-	case key.Matches(msg, keys.Add):
+	case "a":
 		m.initAddForm()
 		m.view = viewAddEvent
-		return m, nil
-
-	case key.Matches(msg, keys.Edit):
+	case "e":
 		dayEvents := m.eventsForDate(m.selectedDate)
 		if len(dayEvents) > 0 && m.selectedIdx < len(dayEvents) {
 			m.initEditForm(dayEvents[m.selectedIdx])
 			m.view = viewEditEvent
 		}
-		return m, nil
-
-	case key.Matches(msg, keys.Delete):
+	case "d", "x", "backspace":
 		dayEvents := m.eventsForDate(m.selectedDate)
 		if len(dayEvents) > 0 && m.selectedIdx < len(dayEvents) {
 			m.view = viewDeleteConfirm
 		}
-		return m, nil
 	}
-
 	return m, nil
 }
 
@@ -781,44 +788,56 @@ func (m *CalendarApp) renderDeleteConfirm() string {
 func (m *CalendarApp) renderHelpBar() string {
 	helpStyle := lipgloss.NewStyle().Foreground(components.Muted)
 	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(components.Secondary)
+	modeStyle := lipgloss.NewStyle().Bold(true).Foreground(components.Primary)
 
-	help := []string{
-		keyStyle.Render("←/→") + " day",
-		keyStyle.Render("↑/↓") + " week",
-		keyStyle.Render("h/l") + " month",
+	// Show mode indicator when in navigation mode
+	if m.pendingKey != "" {
+		modeName := map[string]string{"m": "MONTH", "y": "YEAR"}[m.pendingKey]
+		return modeStyle.Render("["+modeName+" MODE]") + "  " +
+			helpStyle.Render(keyStyle.Render("↑↓")+" navigate  "+keyStyle.Render("esc")+" exit mode")
+	}
+
+	// Row 1: Navigation
+	row1 := []string{
+		keyStyle.Render("←→") + " day",
+		keyStyle.Render("↑↓") + " week",
+		keyStyle.Render("tab") + " event",
+		keyStyle.Render("m") + " month",
+		keyStyle.Render("y") + " year",
 		keyStyle.Render("t") + " today",
+	}
+
+	// Row 2: Actions
+	row2 := []string{
 		keyStyle.Render("a") + " add",
 		keyStyle.Render("e") + " edit",
-		keyStyle.Render("d") + " delete",
+		keyStyle.Render("x") + " delete",
 		keyStyle.Render("q") + " quit",
 	}
 
-	return helpStyle.Render(strings.Join(help, "  "))
+	return helpStyle.Render(strings.Join(row1, "  ")) + "\n" +
+		helpStyle.Render(strings.Join(row2, "  "))
 }
 
 // Key bindings
 var keys = struct {
-	Quit      key.Binding
-	Left      key.Binding
-	Right     key.Binding
-	Up        key.Binding
-	Down      key.Binding
-	PrevMonth key.Binding
-	NextMonth key.Binding
-	Today     key.Binding
-	Add       key.Binding
-	Edit      key.Binding
-	Delete    key.Binding
+	Quit   key.Binding
+	Left   key.Binding
+	Right  key.Binding
+	Up     key.Binding
+	Down   key.Binding
+	Today  key.Binding
+	Add    key.Binding
+	Edit   key.Binding
+	Delete key.Binding
 }{
-	Quit:      key.NewBinding(key.WithKeys("q", "esc", "ctrl+c")),
-	Left:      key.NewBinding(key.WithKeys("left", "h")),
-	Right:     key.NewBinding(key.WithKeys("right", "l")),
-	Up:        key.NewBinding(key.WithKeys("up", "k")),
-	Down:      key.NewBinding(key.WithKeys("down", "j")),
-	PrevMonth: key.NewBinding(key.WithKeys("H", "pageup")),
-	NextMonth: key.NewBinding(key.WithKeys("L", "pagedown")),
-	Today:     key.NewBinding(key.WithKeys("t")),
-	Add:       key.NewBinding(key.WithKeys("a")),
-	Edit:      key.NewBinding(key.WithKeys("e")),
-	Delete:    key.NewBinding(key.WithKeys("d", "x")),
+	Quit:   key.NewBinding(key.WithKeys("q", "ctrl+c")),
+	Left:   key.NewBinding(key.WithKeys("left")),
+	Right:  key.NewBinding(key.WithKeys("right")),
+	Up:     key.NewBinding(key.WithKeys("up")),
+	Down:   key.NewBinding(key.WithKeys("down")),
+	Today:  key.NewBinding(key.WithKeys("t")),
+	Add:    key.NewBinding(key.WithKeys("a")),
+	Edit:   key.NewBinding(key.WithKeys("e")),
+	Delete: key.NewBinding(key.WithKeys("x", "d", "backspace")),
 }

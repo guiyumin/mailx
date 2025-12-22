@@ -29,7 +29,8 @@ Full calendar TUI invoked by `maily calendar` or `maily c`
 │   3:00 PM   1:1 with Manager                      [Work]    │
 │                                                              │
 ├──────────────────────────────────────────────────────────────┤
-│  ←/→ day  ↑/↓ week  a add  e edit  d delete  t today  q quit│
+│  ←→ day  ↑↓ week  tab event  m month  y year  t today       │
+│  a add  e edit  x delete  q quit                             │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -37,16 +38,17 @@ Full calendar TUI invoked by `maily calendar` or `maily c`
 
 ### Navigation
 - `←` `→` - previous/next day
-- `↑` `↓` - previous/next week
-- `h` `l` - previous/next month (vim style)
+- `↑` `↓` - previous/next week (can press multiple times)
+- `tab` / `shift+tab` - cycle through events in selected day
+- `m` - enter month mode (`↑`/`↓` to navigate months, `esc` to exit)
+- `y` - enter year mode (`↑`/`↓` to navigate years, `esc` to exit)
 - `t` - jump to today
-- `q` or `Esc` - quit
+- `q` - quit
 
 ### CRUD
 - `a` - add event (opens form)
 - `e` - edit selected event
-- `d` - delete selected event
-- `Enter` - view event details
+- `x` or `d` - delete selected event
 
 ### Add/Edit Form
 
@@ -62,6 +64,11 @@ Full calendar TUI invoked by `maily calendar` or `maily c`
 │            [Cancel]  [Save]                      │
 └──────────────────────────────────────────────────┘
 ```
+
+- `tab` / `shift+tab` - navigate between fields
+- `enter` - move to next field, or save on last field
+- `ctrl+s` / `alt+s` - save
+- `esc` - cancel
 
 ## CLI Alias
 
