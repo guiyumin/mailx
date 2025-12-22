@@ -29,6 +29,8 @@ func init() {
 	rootCmd.AddCommand(accountsCmd)
 	rootCmd.AddCommand(searchCmd)
 	rootCmd.AddCommand(calendarCmd)
+	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(updateCmd)
 }
 
 func runTUI() {
