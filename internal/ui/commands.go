@@ -31,8 +31,9 @@ func (a App) initClient() tea.Cmd {
 }
 
 func (a *App) loadEmails() tea.Cmd {
+	label := a.currentLabel
 	return func() tea.Msg {
-		emails, err := a.imap.FetchMessages("INBOX", a.emailLimit)
+		emails, err := a.imap.FetchMessages(label, a.emailLimit)
 		if err != nil {
 			return errorMsg{err: err}
 		}
@@ -40,9 +41,20 @@ func (a *App) loadEmails() tea.Cmd {
 	}
 }
 
-func (a *App) executeSearch(query string) tea.Cmd {
+func (a *App) loadLabels() tea.Cmd {
 	return func() tea.Msg {
-		emails, err := a.imap.SearchMessages("INBOX", query)
+		labels, err := a.imap.ListMailboxes()
+		if err != nil {
+			return errorMsg{err: err}
+		}
+		return labelsLoadedMsg{labels: labels}
+	}
+}
+
+func (a *App) executeSearch(query string) tea.Cmd {
+	label := a.currentLabel
+	return func() tea.Msg {
+		emails, err := a.imap.SearchMessages(label, query)
 		if err != nil {
 			return errorMsg{err: err}
 		}

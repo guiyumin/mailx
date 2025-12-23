@@ -40,7 +40,7 @@ type App struct {
 	accountIdx    int
 	imap          *gmail.IMAPClient
 	imapCache     map[int]*gmail.IMAPClient
-	emailCache    map[int][]gmail.Email
+	emailCache    map[string][]gmail.Email // key: "accountIdx:label"
 	mailList      components.MailList
 	viewport      viewport.Model
 	spinner       spinner.Model
@@ -52,6 +52,11 @@ type App struct {
 	statusMsg     string
 	confirmDelete bool
 	emailLimit    uint32
+
+	// Labels
+	labelPicker     components.LabelPicker
+	currentLabel    string // current mailbox/label being viewed
+	showLabelPicker bool   // showing label picker view
 
 	// Search
 	searchInput    textinput.Model
@@ -84,6 +89,14 @@ type appSearchResultsMsg struct {
 	query  string
 }
 
+type labelsLoadedMsg struct {
+	labels []string
+}
+
+type labelSwitchedMsg struct {
+	label string
+}
+
 func NewApp(store *auth.AccountStore) App {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -98,18 +111,20 @@ func NewApp(store *auth.AccountStore) App {
 	vp.Style = lipgloss.NewStyle().Padding(1, 4, 3, 4)
 
 	return App{
-		store:       store,
-		accountIdx:  0,
-		imapCache:   make(map[int]*gmail.IMAPClient),
-		emailCache:  make(map[int][]gmail.Email),
-		mailList:    components.NewMailList(),
-		viewport:    vp,
-		spinner:     s,
-		state:       stateLoading,
-		view:        listView,
-		emailLimit:  50,
-		searchInput: si,
-		selected:    make(map[imap.UID]bool),
+		store:        store,
+		accountIdx:   0,
+		imapCache:    make(map[int]*gmail.IMAPClient),
+		emailCache:   make(map[string][]gmail.Email),
+		mailList:     components.NewMailList(),
+		viewport:     vp,
+		spinner:      s,
+		state:        stateLoading,
+		view:         listView,
+		emailLimit:   50,
+		labelPicker:  components.NewLabelPicker(),
+		currentLabel: "INBOX",
+		searchInput:  si,
+		selected:     make(map[imap.UID]bool),
 	}
 }
 
@@ -160,6 +175,34 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 
+		// Handle label picker navigation
+		if a.showLabelPicker {
+			switch msg.String() {
+			case "up", "down", "k", "j":
+				var cmd tea.Cmd
+				a.labelPicker, cmd = a.labelPicker.Update(msg)
+				return a, cmd
+			case "enter":
+				// Select label and load emails
+				newLabel := a.labelPicker.CursorLabel()
+				a.showLabelPicker = false
+				if newLabel != a.currentLabel {
+					a.currentLabel = newLabel
+					a.labelPicker.SetSelected(newLabel)
+					a.state = stateLoading
+					a.statusMsg = "Loading..."
+					return a, tea.Batch(a.spinner.Tick, a.loadEmails())
+				}
+				return a, nil
+			case "esc", "g":
+				a.showLabelPicker = false
+				return a, nil
+			case "q":
+				return a, tea.Quit
+			}
+			return a, nil
+		}
+
 		switch msg.String() {
 		case "ctrl+c", "q":
 			// Close all cached IMAP connections
@@ -172,6 +215,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.imap.Close()
 			}
 			return a, tea.Quit
+		case "g":
+			// Show label picker (when not in search/confirm mode)
+			if a.state == stateReady && !a.confirmDelete && !a.searchMode && !a.isSearchResult && a.view == listView {
+				a.labelPicker.SetSelected(a.currentLabel)
+				a.showLabelPicker = true
+				return a, nil
+			}
 		case "esc":
 			if a.confirmDelete {
 				a.confirmDelete = false
@@ -296,10 +346,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, tea.Batch(a.spinner.Tick, a.markSelectedAsRead())
 			}
 		case "tab":
-			if len(a.store.Accounts) > 1 && !a.confirmDelete && !a.isSearchResult {
+			if len(a.store.Accounts) > 1 && !a.confirmDelete && !a.isSearchResult && !a.showLabelPicker {
 				// Save current emails to cache
 				if emails := a.mailList.Emails(); len(emails) > 0 {
-					a.emailCache[a.accountIdx] = emails
+					cacheKey := fmt.Sprintf("%d:%s", a.accountIdx, a.currentLabel)
+					a.emailCache[cacheKey] = emails
 				}
 				// Save current IMAP connection to cache
 				if a.imap != nil {
@@ -309,13 +360,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Switch to next account
 				a.accountIdx = (a.accountIdx + 1) % len(a.store.Accounts)
 				a.view = listView
+				a.currentLabel = "INBOX" // Reset to inbox on account switch
+				a.showLabelPicker = false
 
-				// Check if we have cached data for this account
-				if cached, ok := a.emailCache[a.accountIdx]; ok && len(cached) > 0 {
+				// Check if we have cached data for this account's inbox
+				cacheKey := fmt.Sprintf("%d:%s", a.accountIdx, a.currentLabel)
+				if cached, ok := a.emailCache[cacheKey]; ok && len(cached) > 0 {
 					a.imap = a.imapCache[a.accountIdx]
 					a.mailList.SetEmails(cached)
 					a.state = stateReady
-					a.statusMsg = fmt.Sprintf("%d emails", len(cached))
+					labelName := components.GetLabelDisplayName(a.currentLabel)
+					a.statusMsg = fmt.Sprintf("%s: %d emails", labelName, len(cached))
 					return a, nil
 				}
 
@@ -367,6 +422,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = msg.Width
 		a.height = msg.Height
 		a.mailList.SetSize(msg.Width, msg.Height-6)
+		a.labelPicker.SetSize(msg.Width, msg.Height)
 		a.viewport.Width = msg.Width - 8
 		a.viewport.Height = msg.Height - 8
 
@@ -378,14 +434,21 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case clientReadyMsg:
 		a.imap = msg.imap
 		a.imapCache[a.accountIdx] = msg.imap
+		a.statusMsg = "Loading labels..."
+		return a, a.loadLabels()
+
+	case labelsLoadedMsg:
+		a.labelPicker.SetLabels(msg.labels)
 		a.statusMsg = "Loading emails..."
 		return a, a.loadEmails()
 
 	case emailsLoadedMsg:
 		a.mailList.SetEmails(msg.emails)
-		a.emailCache[a.accountIdx] = msg.emails
+		cacheKey := fmt.Sprintf("%d:%s", a.accountIdx, a.currentLabel)
+		a.emailCache[cacheKey] = msg.emails
 		a.state = stateReady
-		a.statusMsg = fmt.Sprintf("%d emails", len(msg.emails))
+		labelName := components.GetLabelDisplayName(a.currentLabel)
+		a.statusMsg = fmt.Sprintf("%s: %d emails", labelName, len(msg.emails))
 
 	case errorMsg:
 		a.state = stateError
@@ -477,6 +540,11 @@ func (a App) View() string {
 		content = components.RenderCentered(a.width, a.height, components.RenderSearchInput(a.searchInput.View()))
 	}
 
+	// Show label picker overlay
+	if a.showLabelPicker {
+		content = a.labelPicker.View()
+	}
+
 	// Build header data
 	var accounts []string
 	for _, acc := range a.store.Accounts {
@@ -488,6 +556,7 @@ func (a App) View() string {
 		ActiveIdx:      a.accountIdx,
 		IsSearchResult: a.isSearchResult,
 		SearchQuery:    a.searchQuery,
+		CurrentLabel:   a.currentLabel,
 	}
 
 	// Build status bar data

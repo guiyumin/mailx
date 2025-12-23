@@ -16,6 +16,7 @@ type HeaderData struct {
 	ActiveIdx      int
 	IsSearchResult bool
 	SearchQuery    string
+	CurrentLabel   string
 }
 
 type StatusBarData struct {
@@ -68,7 +69,19 @@ func RenderHeader(data HeaderData) string {
 	}
 
 	tabsStr := strings.Join(tabs, " ")
-	return HeaderStyle.Width(data.Width).Render(title + " " + tabsStr)
+
+	// Show current label badge if not in inbox
+	labelBadge := ""
+	if data.CurrentLabel != "" && data.CurrentLabel != "INBOX" {
+		labelName := GetLabelDisplayName(data.CurrentLabel)
+		labelBadge = " " + lipgloss.NewStyle().
+			Foreground(Text).
+			Background(Secondary).
+			Padding(0, 1).
+			Render(labelName)
+	}
+
+	return HeaderStyle.Width(data.Width).Render(title + " " + tabsStr + labelBadge)
 }
 
 func RenderStatusBar(data StatusBarData) string {
@@ -90,11 +103,11 @@ func RenderStatusBar(data StatusBarData) string {
 			HelpKeyStyle.Render("q") + HelpDescStyle.Render(" quit")
 	} else if data.IsListView {
 		help = tabHint +
+			HelpKeyStyle.Render("g") + HelpDescStyle.Render(" labels  ") +
 			HelpKeyStyle.Render("j/k") + HelpDescStyle.Render(" navigate  ") +
 			HelpKeyStyle.Render("enter") + HelpDescStyle.Render(" open  ") +
 			HelpKeyStyle.Render("/") + HelpDescStyle.Render(" search  ") +
 			HelpKeyStyle.Render("r") + HelpDescStyle.Render(" refresh  ") +
-			HelpKeyStyle.Render("l") + HelpDescStyle.Render(" load more  ") +
 			HelpKeyStyle.Render("d") + HelpDescStyle.Render(" delete  ") +
 			HelpKeyStyle.Render("q") + HelpDescStyle.Render(" quit")
 	} else {
