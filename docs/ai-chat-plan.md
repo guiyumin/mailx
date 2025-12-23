@@ -99,21 +99,60 @@ Type to filter, arrow keys to navigate, Enter to select.
 
 **Context-aware:** Commands shown depend on current view:
 - Email content view: summarize, extract, reply, delete
-- Email list view: refresh, compose, add event
+- Email list view: search, refresh, compose, add event
+- Today view: summarize, extract, reply, delete, add event
 - Calendar view: add, edit, delete event
 
-**Power users still have shortcuts:**
-| Shortcut | Command |
-|----------|---------|
-| `s` | /summarize |
-| `e` | /extract |
-| `a` | /add |
-| `r` | /reply |
-| `d` | /delete |
+**Context-aware shortcuts:**
+
+The same key does different things based on context:
+
+| Shortcut | Mail List View | Email Content View | Today View |
+|----------|----------------|-------------------|------------|
+| `s` | Search | Summarize (AI) | Summarize (AI) |
+| `r` | Reply | Reply | Reply |
+| `d` | Delete | Delete | Delete |
+| `e` | - | Extract to calendar (AI) | Extract to calendar (AI) |
+| `a` | - | - | Add event |
+
+**Slash commands** (`/`) provide discoverability - same actions, searchable.
 
 Both paths do the same thing - `/` is discoverable, shortcuts are fast.
 
-### 5. Today View (Daily Dashboard)
+### 5. Reply to Email
+
+Press `r` or `/reply` to open reply compose view:
+
+```
+┌─ Reply ──────────────────────────────────────────┐
+│ From: you@gmail.com                              │
+│ To:   sender@example.com                         │
+│ Subject: Re: Original Subject                    │
+│                                                  │
+│ ┌─ Body ───────────────────────────────────────┐ │
+│ │                                              │ │
+│ │ (cursor here)                                │ │
+│ │                                              │ │
+│ │ ---                                          │ │
+│ │ On Dec 23, sender@example.com wrote:         │ │
+│ │ > Original email content here                │ │
+│ │ > quoted with > prefix                       │ │
+│ └──────────────────────────────────────────────┘ │
+│                                                  │
+│ [Ctrl+Enter] Send   [Tab] Next field   [Esc] Cancel │
+└──────────────────────────────────────────────────┘
+```
+
+**Features:**
+- From: auto-filled with current account email
+- To: auto-filled with original sender (Reply-To or From)
+- Subject: auto-filled with "Re: " + original subject
+- Body: cursor at top, original email quoted below with `>` prefix
+- Quote header: "On {date}, {sender} wrote:"
+
+**No AI needed** - this is a standard email feature.
+
+### 6. Today View (Daily Dashboard)
 
 Command: `maily today` or `maily t`
 
@@ -269,14 +308,16 @@ For summarization, build context from:
 
 ## Implementation Phases
 
-### Phase 0: Today View + Slash Commands (No AI)
-- [ ] Add `maily today` / `maily t` command
+### Phase 0: Core Features (No AI)
+- [x] Add `maily today` / `maily t` command
 - [ ] Create compact email list component (title only)
 - [ ] Create vertical event list component
 - [ ] Build split-panel today view
 - [ ] Add event CRUD (add/edit/delete) via keyboard
 - [ ] Tab or arrow keys to switch between panels
+- [ ] Reply feature (`r` shortcut, compose view with quoted original)
 - [ ] Slash command palette (`/` to open, fuzzy search, context-aware)
+- [ ] Context-aware `s` key (search in list view, summarize in content/today view)
 
 ### Phase 1: AI Integration (single phase for all AI features)
 - [ ] Auto-detect available AI CLI (claude, codex, gemini, ollama)
@@ -285,7 +326,7 @@ For summarization, build context from:
 - [ ] `maily c add "tomorrow 9am meeting"` - NLP event creation with confirmation
 - [ ] TUI quick-add with NLP (hybrid: quick add vs form)
 - [ ] `e` key to extract events from email → confirm before adding
-- [ ] `s` key to summarize email (only in email content view, read-only)
+- [ ] `s` key to summarize email (in email content view and today view, read-only)
 - [ ] `maily chat "question"` - one-shot Q&A
 
 ## Configuration
