@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"time"
 
@@ -279,8 +280,15 @@ func (m *CalendarApp) handleFormInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.saveEvent()
 
-	case "ctrl+s", "alt+s":
-		return m, m.saveEvent()
+	case "cmd+s", "ctrl+s":
+		// cmd+s for macOS, ctrl+s for Windows/Linux
+		if msg.String() == "cmd+s" && runtime.GOOS == "darwin" {
+			return m, m.saveEvent()
+		}
+		if msg.String() == "ctrl+s" && runtime.GOOS != "darwin" {
+			return m, m.saveEvent()
+		}
+		return m, nil
 
 	case "left":
 		if m.formFocusIdx == 5 && len(m.calendars) > 0 {
@@ -752,7 +760,11 @@ func (m *CalendarApp) renderForm(title string) string {
 
 	// Help
 	helpStyle := lipgloss.NewStyle().Foreground(components.Muted)
-	b.WriteString(helpStyle.Render("Tab: next field  ⌘S/Ctrl+S: save  Esc: cancel"))
+	saveKey := "Ctrl+S"
+	if runtime.GOOS == "darwin" {
+		saveKey = "⌘ + S"
+	}
+	b.WriteString(helpStyle.Render(fmt.Sprintf("Tab: next field  %s: save  Esc: cancel", saveKey)))
 
 	// Wrap with padding
 	formStyle := lipgloss.NewStyle().Padding(1, 2)
