@@ -816,7 +816,19 @@ func (a App) renderEmailContent(email gmail.Email) string {
 	if body == "" {
 		body = email.Snippet
 	}
-	return body
+
+	// Wrap text to fit viewport width (accounting for padding)
+	wrapWidth := a.viewport.Width - 8
+	if wrapWidth < 40 {
+		wrapWidth = 40
+	}
+
+	contentStyle := lipgloss.NewStyle().
+		Width(wrapWidth).
+		PaddingLeft(4).
+		PaddingRight(4)
+
+	return contentStyle.Render(body)
 }
 
 func (a App) selectedCount() int {
