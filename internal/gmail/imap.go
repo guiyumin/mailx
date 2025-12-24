@@ -19,18 +19,28 @@ type IMAPClient struct {
 	creds  *auth.Credentials
 }
 
+// Attachment represents email attachment metadata
+type Attachment struct {
+	PartID      string
+	Filename    string
+	ContentType string
+	Size        int64
+}
+
 type Email struct {
-	UID        imap.UID
-	MessageID  string
-	From       string
-	ReplyTo    string // Reply-To address (if different from From)
-	To         string
-	Subject    string
-	Date       time.Time
-	Snippet    string
-	Body       string
-	Unread     bool
-	References string // For threading
+	UID          imap.UID
+	MessageID    string
+	InternalDate time.Time    // Server receive time (for ordering and cleanup)
+	From         string
+	ReplyTo      string       // Reply-To address (if different from From)
+	To           string
+	Subject      string
+	Date         time.Time
+	Snippet      string
+	Body         string
+	Unread       bool
+	References   string       // For threading
+	Attachments  []Attachment // Attachment metadata (content fetched on demand)
 }
 
 func NewIMAPClient(creds *auth.Credentials) (*IMAPClient, error) {
@@ -77,6 +87,116 @@ func (c *IMAPClient) SelectMailbox(name string) error {
 	return err
 }
 
+// MailboxInfo contains mailbox metadata
+type MailboxInfo struct {
+	UIDValidity uint32
+	NumMessages uint32
+}
+
+// SelectMailboxWithInfo selects a mailbox and returns metadata
+func (c *IMAPClient) SelectMailboxWithInfo(name string) (*MailboxInfo, error) {
+	mbox, err := c.client.Select(name, nil).Wait()
+	if err != nil {
+		return nil, err
+	}
+	return &MailboxInfo{
+		UIDValidity: mbox.UIDValidity,
+		NumMessages: mbox.NumMessages,
+	}, nil
+}
+
+// FetchUIDsAndFlags fetches UIDs and flags for emails since the given date
+// Returns a map of UID -> unread status
+func (c *IMAPClient) FetchUIDsAndFlags(mailbox string, since time.Time) (map[imap.UID]bool, error) {
+	_, err := c.client.Select(mailbox, nil).Wait()
+	if err != nil {
+		return nil, fmt.Errorf("failed to select mailbox: %w", err)
+	}
+
+	// Search for emails since the given date
+	criteria := &imap.SearchCriteria{
+		Since: since,
+	}
+
+	searchData, err := c.client.Search(criteria, nil).Wait()
+	if err != nil {
+		return nil, fmt.Errorf("search failed: %w", err)
+	}
+
+	if len(searchData.AllSeqNums()) == 0 {
+		return make(map[imap.UID]bool), nil
+	}
+
+	// Fetch UIDs and flags for found messages
+	seqSet := imap.SeqSet{}
+	for _, seqNum := range searchData.AllSeqNums() {
+		seqSet.AddNum(seqNum)
+	}
+
+	fetchOptions := &imap.FetchOptions{
+		UID:   true,
+		Flags: true,
+	}
+
+	messages, err := c.client.Fetch(seqSet, fetchOptions).Collect()
+	if err != nil {
+		return nil, fmt.Errorf("fetch failed: %w", err)
+	}
+
+	result := make(map[imap.UID]bool)
+	for _, msg := range messages {
+		unread := true
+		for _, flag := range msg.Flags {
+			if flag == imap.FlagSeen {
+				unread = false
+				break
+			}
+		}
+		result[msg.UID] = unread
+	}
+
+	return result, nil
+}
+
+// FetchMessagesByUIDs fetches full messages by their UIDs
+func (c *IMAPClient) FetchMessagesByUIDs(mailbox string, uids []imap.UID) ([]Email, error) {
+	if len(uids) == 0 {
+		return []Email{}, nil
+	}
+
+	_, err := c.client.Select(mailbox, nil).Wait()
+	if err != nil {
+		return nil, fmt.Errorf("failed to select mailbox: %w", err)
+	}
+
+	uidSet := imap.UIDSet{}
+	for _, uid := range uids {
+		uidSet.AddNum(uid)
+	}
+
+	fetchOptions := &imap.FetchOptions{
+		UID:           true,
+		Flags:         true,
+		Envelope:      true,
+		InternalDate:  true,
+		BodyStructure: &imap.FetchItemBodyStructure{Extended: true},
+		BodySection:   []*imap.FetchItemBodySection{{Peek: true}},
+	}
+
+	messages, err := c.client.Fetch(uidSet, fetchOptions).Collect()
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch messages: %w", err)
+	}
+
+	emails := make([]Email, 0, len(messages))
+	for _, msg := range messages {
+		email := c.parseMessage(msg)
+		emails = append(emails, email)
+	}
+
+	return emails, nil
+}
+
 func (c *IMAPClient) FetchMessages(mailbox string, limit uint32) ([]Email, error) {
 	mbox, err := c.client.Select(mailbox, nil).Wait()
 	if err != nil {
@@ -96,10 +216,12 @@ func (c *IMAPClient) FetchMessages(mailbox string, limit uint32) ([]Email, error
 	seqSet.AddRange(from, mbox.NumMessages)
 
 	fetchOptions := &imap.FetchOptions{
-		UID:         true,
-		Flags:       true,
-		Envelope:    true,
-		BodySection: []*imap.FetchItemBodySection{{Peek: true}},
+		UID:           true,
+		Flags:         true,
+		Envelope:      true,
+		InternalDate:  true,
+		BodyStructure: &imap.FetchItemBodyStructure{Extended: true},
+		BodySection:   []*imap.FetchItemBodySection{{Peek: true}},
 	}
 
 	messages, err := c.client.Fetch(seqSet, fetchOptions).Collect()
@@ -121,6 +243,12 @@ func (c *IMAPClient) parseMessage(msg *imapclient.FetchMessageBuffer) Email {
 	email := Email{}
 
 	email.UID = msg.UID
+	email.InternalDate = msg.InternalDate
+
+	// Parse attachments from BODYSTRUCTURE
+	if msg.BodyStructure != nil {
+		email.Attachments = c.parseAttachments(msg.BodyStructure, "")
+	}
 
 	if env := msg.Envelope; env != nil {
 		email.Subject = env.Subject
@@ -284,6 +412,58 @@ func stripHTML(html string) string {
 	return strings.Join(cleanLines, "\n")
 }
 
+// parseAttachments extracts attachment metadata from BODYSTRUCTURE
+func (c *IMAPClient) parseAttachments(bs imap.BodyStructure, partID string) []Attachment {
+	var attachments []Attachment
+
+	switch b := bs.(type) {
+	case *imap.BodyStructureSinglePart:
+		// Check if this is an attachment
+		disposition := ""
+		filename := ""
+
+		// Use the Filename() helper method which checks both disposition and params
+		filename = b.Filename()
+
+		// Get disposition value
+		if disp := b.Disposition(); disp != nil {
+			disposition = strings.ToLower(disp.Value)
+		}
+
+		// Consider it an attachment if it has a disposition of "attachment"
+		// or has a filename and is not text/plain or text/html inline
+		isAttachment := disposition == "attachment"
+		if !isAttachment && filename != "" {
+			contentType := strings.ToLower(b.Type + "/" + b.Subtype)
+			if contentType != "text/plain" && contentType != "text/html" {
+				isAttachment = true
+			}
+		}
+
+		if isAttachment && filename != "" {
+			att := Attachment{
+				PartID:      partID,
+				Filename:    filename,
+				ContentType: b.Type + "/" + b.Subtype,
+				Size:        int64(b.Size),
+			}
+			attachments = append(attachments, att)
+		}
+
+	case *imap.BodyStructureMultiPart:
+		// Recurse into multipart
+		for i, part := range b.Children {
+			childPartID := fmt.Sprintf("%d", i+1)
+			if partID != "" {
+				childPartID = partID + "." + childPartID
+			}
+			attachments = append(attachments, c.parseAttachments(part, childPartID)...)
+		}
+	}
+
+	return attachments
+}
+
 func (c *IMAPClient) MarkAsRead(uid imap.UID) error {
 	uidSet := imap.UIDSet{}
 	uidSet.AddNum(uid)
@@ -432,10 +612,12 @@ func (c *IMAPClient) SearchMessages(mailbox string, query string) ([]Email, erro
 	}
 
 	fetchOptions := &imap.FetchOptions{
-		UID:         true,
-		Flags:       true,
-		Envelope:    true,
-		BodySection: []*imap.FetchItemBodySection{{Peek: true}},
+		UID:           true,
+		Flags:         true,
+		Envelope:      true,
+		InternalDate:  true,
+		BodyStructure: &imap.FetchItemBodyStructure{Extended: true},
+		BodySection:   []*imap.FetchItemBodySection{{Peek: true}},
 	}
 
 	messages, err := c.client.Fetch(uidSet, fetchOptions).Collect()
@@ -464,6 +646,12 @@ func (c *IMAPClient) parseMessageHeader(msg *imapclient.FetchMessageBuffer) Emai
 	email := Email{}
 
 	email.UID = msg.UID
+	email.InternalDate = msg.InternalDate
+
+	// Parse attachments from BODYSTRUCTURE
+	if msg.BodyStructure != nil {
+		email.Attachments = c.parseAttachments(msg.BodyStructure, "")
+	}
 
 	if env := msg.Envelope; env != nil {
 		email.Subject = env.Subject

@@ -12,6 +12,7 @@ import (
 
 	"maily/internal/ai"
 	"maily/internal/auth"
+	"maily/internal/cache"
 	"maily/internal/gmail"
 	"maily/internal/ui/components"
 )
@@ -43,6 +44,7 @@ type App struct {
 	smtp          *gmail.SMTPClient
 	imapCache     map[int]*gmail.IMAPClient
 	emailCache    map[string][]gmail.Email // key: "accountIdx:label"
+	diskCache     *cache.Cache             // persistent disk cache
 	mailList      components.MailList
 	viewport      viewport.Model
 	spinner       spinner.Model
@@ -127,6 +129,10 @@ type summaryErrorMsg struct {
 	err error
 }
 
+type cachedEmailsLoadedMsg struct {
+	emails []gmail.Email
+}
+
 func NewApp(store *auth.AccountStore) App {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -140,11 +146,15 @@ func NewApp(store *auth.AccountStore) App {
 	vp := viewport.New(80, 24) // Default size, will be resized by WindowSizeMsg
 	vp.Style = lipgloss.NewStyle().Padding(1, 4, 3, 4)
 
+	// Initialize disk cache (ignore error, will just skip cache)
+	diskCache, _ := cache.New()
+
 	return App{
 		store:          store,
 		accountIdx:     0,
 		imapCache:      make(map[int]*gmail.IMAPClient),
 		emailCache:     make(map[string][]gmail.Email),
+		diskCache:      diskCache,
 		mailList:       components.NewMailList(),
 		viewport:       vp,
 		spinner:        s,
@@ -170,6 +180,7 @@ func (a App) currentAccount() *auth.Account {
 func (a App) Init() tea.Cmd {
 	return tea.Batch(
 		a.spinner.Tick,
+		a.loadCachedEmails(),
 		a.initClient(),
 	)
 }
@@ -316,8 +327,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.viewport.GotoTop()
 
 					if email.Unread {
+						uid := email.UID
+						account := a.currentAccount()
 						go func() {
-							a.imap.MarkAsRead(email.UID)
+							a.imap.MarkAsRead(uid)
+							// Update disk cache
+							if a.diskCache != nil && account != nil {
+								a.diskCache.UpdateEmailFlags(account.Credentials.Email, a.currentLabel, uid, false)
+							}
 						}()
 					}
 				}
@@ -349,11 +366,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "R":
-			// Shift+R for refresh (uppercase R)
+			// Shift+R for refresh from disk cache (daemon keeps cache updated)
 			if a.state == stateReady && !a.isSearchResult && a.view == listView {
 				a.state = stateLoading
 				a.statusMsg = "Refreshing..."
-				return a, tea.Batch(a.spinner.Tick, a.loadEmails())
+				return a, tea.Batch(a.spinner.Tick, a.reloadFromCache())
 			}
 		case "s":
 			// Context-aware: search in list view, summarize in read view
@@ -404,8 +421,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					uid := email.UID
 					a.mailList.RemoveCurrent()
 					a.view = listView
+					// Delete from server and cache
+					account := a.currentAccount()
 					go func() {
 						a.imap.DeleteMessage(uid)
+						// Also remove from disk cache
+						if a.diskCache != nil && account != nil {
+							a.diskCache.DeleteEmail(account.Credentials.Email, a.currentLabel, uid)
+						}
 					}()
 				}
 				a.confirmDelete = false
@@ -421,7 +444,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.emailLimit += 50
 				a.state = stateLoading
 				a.statusMsg = fmt.Sprintf("Loading %d emails...", a.emailLimit)
-				return a, tea.Batch(a.spinner.Tick, a.loadEmails())
+				return a, tea.Batch(a.spinner.Tick, a.reloadFromCache())
 			}
 		case " ": // Space to toggle selection (search mode only)
 			if a.isSearchResult && a.view == listView && a.state == stateReady {
@@ -480,7 +503,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.currentLabel = "INBOX" // Reset to inbox on account switch
 				a.showLabelPicker = false
 
-				// Check if we have cached data for this account's inbox
+				// Check if we have in-memory cached data for this account's inbox
 				cacheKey := fmt.Sprintf("%d:%s", a.accountIdx, a.currentLabel)
 				if cached, ok := a.emailCache[cacheKey]; ok && len(cached) > 0 {
 					a.imap = a.imapCache[a.accountIdx]
@@ -491,13 +514,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return a, nil
 				}
 
-				// No cache, need to load
-				a.imap = nil
+				// Try disk cache first, then init IMAP in background
+				a.imap = a.imapCache[a.accountIdx]
 				a.state = stateLoading
 				a.emailLimit = 50
 				a.mailList.SetEmails(nil)
 				a.statusMsg = "Loading..."
-				return a, tea.Batch(a.spinner.Tick, a.initClient())
+				return a, tea.Batch(a.spinner.Tick, a.loadCachedEmails(), a.initClient())
 			}
 		}
 
@@ -564,6 +587,15 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.labelPicker.SetLabels(msg.labels)
 		a.statusMsg = "Loading emails..."
 		return a, a.loadEmails()
+
+	case cachedEmailsLoadedMsg:
+		// Only use cached emails if we haven't loaded from server yet
+		if len(msg.emails) > 0 && len(a.mailList.Emails()) == 0 {
+			a.mailList.SetEmails(msg.emails)
+			a.state = stateReady
+			labelName := components.GetLabelDisplayName(a.currentLabel)
+			a.statusMsg = fmt.Sprintf("%s: %d cached emails (connecting...)", labelName, len(msg.emails))
+		}
 
 	case emailsLoadedMsg:
 		a.mailList.SetEmails(msg.emails)

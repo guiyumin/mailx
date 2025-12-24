@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/emersion/go-imap/v2"
 	"maily/internal/ai"
+	"maily/internal/cache"
 	"maily/internal/gmail"
 )
 
@@ -79,12 +80,22 @@ func (a *App) markSelectedAsRead() tea.Cmd {
 		}
 	}
 
+	account := a.currentAccount()
+	mailbox := a.currentLabel
+	diskCache := a.diskCache
+
 	return func() tea.Msg {
 		if len(uids) == 0 {
 			return bulkActionCompleteMsg{action: "marked as read", count: 0}
 		}
 		if err := a.imap.MarkMessagesAsRead(uids); err != nil {
 			return errorMsg{err: err}
+		}
+		// Update disk cache
+		if diskCache != nil && account != nil {
+			for _, uid := range uids {
+				diskCache.UpdateEmailFlags(account.Credentials.Email, mailbox, uid, false)
+			}
 		}
 		return bulkActionCompleteMsg{action: "marked as read", count: len(uids)}
 	}
@@ -99,12 +110,22 @@ func (a *App) deleteSelectedEmails() tea.Cmd {
 		}
 	}
 
+	account := a.currentAccount()
+	mailbox := a.currentLabel
+	diskCache := a.diskCache
+
 	return func() tea.Msg {
 		if len(uids) == 0 {
 			return bulkActionCompleteMsg{action: "deleted", count: 0}
 		}
 		if err := a.imap.DeleteMessages(uids); err != nil {
 			return errorMsg{err: err}
+		}
+		// Also remove from disk cache
+		if diskCache != nil && account != nil {
+			for _, uid := range uids {
+				diskCache.DeleteEmail(account.Credentials.Email, mailbox, uid)
+			}
 		}
 		return bulkActionCompleteMsg{action: "deleted", count: len(uids)}
 	}
@@ -171,6 +192,88 @@ func (a *App) summarizeEmail(email *gmail.Email) tea.Cmd {
 	}
 }
 
+// loadCachedEmails loads emails from disk cache for instant display
+func (a App) loadCachedEmails() tea.Cmd {
+	account := a.currentAccount()
+	if account == nil || a.diskCache == nil {
+		return nil
+	}
+
+	email := account.Credentials.Email
+	mailbox := a.currentLabel
+
+	return func() tea.Msg {
+		cached, err := a.diskCache.LoadEmailsLimit(email, mailbox, 50)
+		if err != nil || len(cached) == 0 {
+			return cachedEmailsLoadedMsg{emails: nil}
+		}
+
+		// Convert cached emails to gmail.Email format
+		emails := make([]gmail.Email, len(cached))
+		for i, c := range cached {
+			emails[i] = cachedToGmail(c)
+		}
+		return cachedEmailsLoadedMsg{emails: emails}
+	}
+}
+
+// reloadFromCache reloads emails from disk cache (for manual refresh)
+func (a App) reloadFromCache() tea.Cmd {
+	account := a.currentAccount()
+	if account == nil || a.diskCache == nil {
+		return func() tea.Msg {
+			return emailsLoadedMsg{emails: nil}
+		}
+	}
+
+	email := account.Credentials.Email
+	mailbox := a.currentLabel
+	limit := int(a.emailLimit)
+
+	return func() tea.Msg {
+		cached, err := a.diskCache.LoadEmailsLimit(email, mailbox, limit)
+		if err != nil {
+			return errorMsg{err: err}
+		}
+
+		// Convert cached emails to gmail.Email format
+		emails := make([]gmail.Email, len(cached))
+		for i, c := range cached {
+			emails[i] = cachedToGmail(c)
+		}
+		return emailsLoadedMsg{emails: emails}
+	}
+}
+
+// cachedToGmail converts a cache.CachedEmail to gmail.Email
+func cachedToGmail(c cache.CachedEmail) gmail.Email {
+	attachments := make([]gmail.Attachment, len(c.Attachments))
+	for i, a := range c.Attachments {
+		attachments[i] = gmail.Attachment{
+			PartID:      a.PartID,
+			Filename:    a.Filename,
+			ContentType: a.ContentType,
+			Size:        a.Size,
+		}
+	}
+
+	return gmail.Email{
+		UID:          c.UID,
+		MessageID:    c.MessageID,
+		InternalDate: c.InternalDate,
+		From:         c.From,
+		ReplyTo:      c.ReplyTo,
+		To:           c.To,
+		Subject:      c.Subject,
+		Date:         c.Date,
+		Snippet:      c.Snippet,
+		Body:         c.Body,
+		Unread:       c.Unread,
+		References:   c.References,
+		Attachments:  attachments,
+	}
+}
+
 // executeCommand handles slash command execution
 func (a App) executeCommand(command string) (tea.Model, tea.Cmd) {
 	switch command {
@@ -211,11 +314,11 @@ func (a App) executeCommand(command string) (tea.Model, tea.Cmd) {
 		return a, textinput.Blink
 
 	case "refresh":
-		// Refresh inbox
+		// Refresh from disk cache (daemon keeps cache updated)
 		if !a.isSearchResult {
 			a.state = stateLoading
 			a.statusMsg = "Refreshing..."
-			return a, tea.Batch(a.spinner.Tick, a.loadEmails())
+			return a, tea.Batch(a.spinner.Tick, a.reloadFromCache())
 		}
 
 	case "labels":
