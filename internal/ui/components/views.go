@@ -279,13 +279,41 @@ func RenderLoading(width, height int, spinnerView, statusMsg string) string {
 	)
 }
 
-func RenderError(width, height int, err error) string {
+func RenderError(width, height int, err error, accountEmail string, canSwitch bool) string {
+	errorText := fmt.Sprintf("Error: %v", err)
+	if accountEmail != "" {
+		errorText = fmt.Sprintf("Error [%s]: %v", accountEmail, err)
+	}
+
+	// Check if this is a login/authentication error
+	errStr := err.Error()
+	isAuthError := strings.Contains(errStr, "login failed") ||
+		strings.Contains(errStr, "AUTHENTICATIONFAILED") ||
+		strings.Contains(errStr, "Invalid credentials")
+
+	fixHint := ""
+	if isAuthError {
+		fixHintStyle := lipgloss.NewStyle().
+			Foreground(Muted).
+			Italic(true)
+		fixHint = "\n\n" + fixHintStyle.Render("To fix: Generate a new App Password at myaccount.google.com") +
+			"\n" + fixHintStyle.Render("Then run: maily login gmail")
+	}
+
+	hint := ""
+	if canSwitch {
+		hint = "\n\n" + HelpKeyStyle.Render("tab") + HelpDescStyle.Render(" switch account  ") +
+			HelpKeyStyle.Render("q") + HelpDescStyle.Render(" quit")
+	} else {
+		hint = "\n\n" + HelpKeyStyle.Render("q") + HelpDescStyle.Render(" quit")
+	}
+
 	return lipgloss.Place(
 		width,
 		height-4,
 		lipgloss.Center,
 		lipgloss.Center,
-		ErrorStyle.Render(fmt.Sprintf("Error: %v", err)),
+		ErrorStyle.Render(errorText)+fixHint+hint,
 	)
 }
 

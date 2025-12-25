@@ -52,8 +52,9 @@ type App struct {
 	view          view
 	width         int
 	height        int
-	err           error
-	statusMsg     string
+	err            error
+	errAccountEmail string // which account the error belongs to
+	statusMsg      string
 	confirmDelete bool
 	deleteOption  components.DeleteOption // selected option in delete dialog
 	emailLimit    uint32
@@ -95,7 +96,8 @@ type emailsLoadedMsg struct {
 }
 
 type errorMsg struct {
-	err error
+	err          error
+	accountEmail string // which account this error belongs to
 }
 
 type clientReadyMsg struct {
@@ -516,14 +518,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "tab":
 			if len(a.store.Accounts) > 1 && !a.confirmDelete && !a.isSearchResult && !a.showLabelPicker {
-				// Save current emails to cache
-				if emails := a.mailList.Emails(); len(emails) > 0 {
-					cacheKey := fmt.Sprintf("%d:%s", a.accountIdx, a.currentLabel)
-					a.emailCache[cacheKey] = emails
-				}
-				// Save current IMAP connection to cache
-				if a.imap != nil {
-					a.imapCache[a.accountIdx] = a.imap
+				// Save current emails to cache (only if not in error state)
+				if a.state != stateError {
+					if emails := a.mailList.Emails(); len(emails) > 0 {
+						cacheKey := fmt.Sprintf("%d:%s", a.accountIdx, a.currentLabel)
+						a.emailCache[cacheKey] = emails
+					}
+					// Save current IMAP connection to cache
+					if a.imap != nil {
+						a.imapCache[a.accountIdx] = a.imap
+					}
 				}
 
 				// Switch to next account
@@ -531,6 +535,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.view = listView
 				a.currentLabel = "INBOX" // Reset to inbox on account switch
 				a.showLabelPicker = false
+				// Clear error state from previous account
+				a.err = nil
 
 				// Check if we have in-memory cached data for this account's inbox
 				cacheKey := fmt.Sprintf("%d:%s", a.accountIdx, a.currentLabel)
@@ -635,8 +641,18 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.statusMsg = fmt.Sprintf("%s: %d emails", labelName, len(msg.emails))
 
 	case errorMsg:
+		// Ignore errors from other accounts (stale errors after switching)
+		currentAccount := a.currentAccount()
+		currentEmail := ""
+		if currentAccount != nil {
+			currentEmail = currentAccount.Credentials.Email
+		}
+		if msg.accountEmail != "" && msg.accountEmail != currentEmail {
+			return a, nil
+		}
 		a.state = stateError
 		a.err = msg.err
+		a.errAccountEmail = msg.accountEmail
 
 	case appSearchResultsMsg:
 		a.mailList.SetEmails(msg.emails)
@@ -754,7 +770,8 @@ func (a App) View() string {
 	case stateLoading:
 		content = components.RenderLoading(a.width, a.height, a.spinner.View(), a.statusMsg)
 	case stateError:
-		content = components.RenderError(a.width, a.height, a.err)
+		canSwitch := len(a.store.Accounts) > 1
+		content = components.RenderError(a.width, a.height, a.err, a.errAccountEmail, canSwitch)
 	case stateReady:
 		switch a.view {
 		case listView:
