@@ -17,10 +17,6 @@ import (
 	"maily/internal/ui/components"
 )
 
-type selectedEmail struct {
-	email gmail.Email
-}
-
 type view int
 
 const (
@@ -41,7 +37,6 @@ type App struct {
 	store         *auth.AccountStore
 	accountIdx    int
 	imap          *gmail.IMAPClient
-	smtp          *gmail.SMTPClient
 	imapCache     map[int]*gmail.IMAPClient
 	emailCache    map[string][]gmail.Email // key: "accountIdx:label"
 	diskCache     *cache.Cache             // persistent disk cache
@@ -111,10 +106,6 @@ type appSearchResultsMsg struct {
 
 type labelsLoadedMsg struct {
 	labels []string
-}
-
-type labelSwitchedMsg struct {
-	label string
 }
 
 type replySentMsg struct{}

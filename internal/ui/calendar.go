@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -645,11 +644,11 @@ func (m *CalendarApp) renderMonthGrid() string {
 }
 
 func (m *CalendarApp) renderEvent(event calendar.Event, selected bool) string {
-	timeStr := event.StartTime.Format("3:04 PM")
-	if !event.AllDay {
-		timeStr = fmt.Sprintf("%s - %s", event.StartTime.Format("3:04 PM"), event.EndTime.Format("3:04 PM"))
-	} else {
+	var timeStr string
+	if event.AllDay {
 		timeStr = "All day"
+	} else {
+		timeStr = fmt.Sprintf("%s - %s", event.StartTime.Format("3:04 PM"), event.EndTime.Format("3:04 PM"))
 	}
 
 	timeStyle := lipgloss.NewStyle().
@@ -829,27 +828,4 @@ func (m *CalendarApp) renderHelpBar() string {
 
 	return helpStyle.Render(strings.Join(row1, "  ")) + "\n" +
 		helpStyle.Render(strings.Join(row2, "  "))
-}
-
-// Key bindings
-var keys = struct {
-	Quit   key.Binding
-	Left   key.Binding
-	Right  key.Binding
-	Up     key.Binding
-	Down   key.Binding
-	Today  key.Binding
-	Add    key.Binding
-	Edit   key.Binding
-	Delete key.Binding
-}{
-	Quit:   key.NewBinding(key.WithKeys("q", "ctrl+c")),
-	Left:   key.NewBinding(key.WithKeys("left")),
-	Right:  key.NewBinding(key.WithKeys("right")),
-	Up:     key.NewBinding(key.WithKeys("up")),
-	Down:   key.NewBinding(key.WithKeys("down")),
-	Today:  key.NewBinding(key.WithKeys("t")),
-	Add:    key.NewBinding(key.WithKeys("a")),
-	Edit:   key.NewBinding(key.WithKeys("e")),
-	Delete: key.NewBinding(key.WithKeys("x", "d", "backspace")),
 }

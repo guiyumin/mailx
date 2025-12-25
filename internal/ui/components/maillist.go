@@ -54,7 +54,6 @@ type MailList struct {
 	width         int
 	height        int
 	keyMap        MailListKeyMap
-	selected      *gmail.Email
 	selectionMode bool
 	selections    map[imap.UID]bool
 }
