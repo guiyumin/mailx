@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -117,4 +118,83 @@ func RunSelector(title string, items []SelectorItem) (string, string, bool) {
 	}
 
 	return result.Selected(), "", false
+}
+
+// TextInput is a TUI component for text input
+type TextInput struct {
+	title     string
+	input     textinput.Model
+	cancelled bool
+}
+
+func NewTextInput(title, placeholder string) TextInput {
+	ti := textinput.New()
+	ti.Placeholder = placeholder
+	ti.Focus()
+	ti.CharLimit = 200
+	ti.Width = 50
+
+	return TextInput{
+		title: title,
+		input: ti,
+	}
+}
+
+func (t TextInput) Init() tea.Cmd {
+	return textinput.Blink
+}
+
+func (t TextInput) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "enter":
+			return t, tea.Quit
+		case "esc", "ctrl+c":
+			t.cancelled = true
+			return t, tea.Quit
+		}
+	}
+
+	var cmd tea.Cmd
+	t.input, cmd = t.input.Update(msg)
+	return t, cmd
+}
+
+func (t TextInput) View() string {
+	var b strings.Builder
+
+	b.WriteString(selectorTitleStyle.Render(t.title))
+	b.WriteString("\n\n")
+	b.WriteString("    " + t.input.View())
+	b.WriteString("\n\n")
+	b.WriteString(selectorHintStyle.Render("enter confirm • esc cancel"))
+
+	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
+}
+
+func (t TextInput) Value() string {
+	return t.input.Value()
+}
+
+func (t TextInput) Cancelled() bool {
+	return t.cancelled
+}
+
+// RunTextInput runs the text input TUI and returns the entered text
+func RunTextInput(title, placeholder string) (string, bool) {
+	ti := NewTextInput(title, placeholder)
+	p := tea.NewProgram(ti)
+
+	m, err := p.Run()
+	if err != nil {
+		return "", true
+	}
+
+	result := m.(TextInput)
+	if result.Cancelled() || result.Value() == "" {
+		return "", true
+	}
+
+	return result.Value(), false
 }

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"strconv"
@@ -229,10 +228,11 @@ func runCalendarAdd(input string) {
 }
 
 func promptForEventDescription() string {
-	fmt.Print("Describe your event (e.g., 'tomorrow 9am meeting with Jerry'): ")
-	reader := bufio.NewReader(os.Stdin)
-	input, _ := reader.ReadString('\n')
-	return strings.TrimSpace(input)
+	input, cancelled := RunTextInput("Describe your event", "tomorrow 9am meeting with Jerry")
+	if cancelled {
+		return ""
+	}
+	return input
 }
 
 func promptForCalendar(calendars []calendar.Calendar) (string, string, bool) {
