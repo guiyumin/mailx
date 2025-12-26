@@ -156,6 +156,7 @@ func (c *eventKitClient) CreateEvent(event Event) (string, error) {
 		cLocation,
 		cNotes,
 		allDay,
+		C.int(event.AlarmMinutesBefore),
 	)
 
 	if cEventID == nil {

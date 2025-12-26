@@ -14,14 +14,15 @@ var (
 
 // Event represents a calendar event
 type Event struct {
-	ID        string
-	Title     string
-	StartTime time.Time
-	EndTime   time.Time
-	Location  string
-	Notes     string
-	Calendar  string
-	AllDay    bool
+	ID                 string
+	Title              string
+	StartTime          time.Time
+	EndTime            time.Time
+	Location           string
+	Notes              string
+	Calendar           string
+	AllDay             bool
+	AlarmMinutesBefore int // Minutes before event to trigger alarm (0 = no alarm)
 }
 
 // Calendar represents a calendar source

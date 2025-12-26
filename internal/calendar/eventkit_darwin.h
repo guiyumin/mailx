@@ -33,9 +33,11 @@ char* ListEvents(long long startTimestamp, long long endTimestamp);
 
 // Create a new event
 // Returns the event ID on success, NULL on failure
+// alarmMinutesBefore: minutes before event to trigger alarm (0 = no alarm)
 // Caller must free the returned string
 char* CreateEvent(const char* title, long long startTimestamp, long long endTimestamp,
-                  const char* calendarID, const char* location, const char* notes, int allDay);
+                  const char* calendarID, const char* location, const char* notes, int allDay,
+                  int alarmMinutesBefore);
 
 // Delete an event by ID
 // Returns EK_SUCCESS on success, error code on failure

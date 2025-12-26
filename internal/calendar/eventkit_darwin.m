@@ -196,7 +196,8 @@ char* ListEvents(long long startTimestamp, long long endTimestamp) {
 }
 
 char* CreateEvent(const char* title, long long startTimestamp, long long endTimestamp,
-                  const char* calendarID, const char* location, const char* notes, int allDay) {
+                  const char* calendarID, const char* location, const char* notes, int allDay,
+                  int alarmMinutesBefore) {
     @autoreleasepool {
         if (!accessGranted) {
             if (RequestCalendarAccess() != EK_SUCCESS) {
@@ -218,6 +219,12 @@ char* CreateEvent(const char* title, long long startTimestamp, long long endTime
 
         if (notes != NULL && strlen(notes) > 0) {
             event.notes = [NSString stringWithUTF8String:notes];
+        }
+
+        // Add alarm if specified (negative offset = before event)
+        if (alarmMinutesBefore > 0) {
+            EKAlarm *alarm = [EKAlarm alarmWithRelativeOffset:-alarmMinutesBefore * 60];
+            [event addAlarm:alarm];
         }
 
         // Find the calendar by ID, or use default
