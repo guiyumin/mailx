@@ -46,7 +46,7 @@ Full calendar TUI invoked by `maily calendar` or `maily c`
 - `q` - quit
 
 ### CRUD
-- `a` - add event (opens form)
+- `a` - add event (NLP quick-add if AI CLI available, otherwise interactive form)
 - `e` - edit selected event
 - `x` or `d` - delete selected event
 

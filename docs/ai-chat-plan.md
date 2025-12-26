@@ -24,38 +24,33 @@ maily c add "lunch with Sarah next Friday at noon"
 maily c add "team standup every Monday 10am"
 ```
 
-**TUI Event Add (hybrid approach):**
-When pressing `a` to add event, user can choose:
-```
-┌─ Add Event ──────────────────────────────────────┐
-│                                                  │
-│  [1] Quick add (natural language)                │
-│  [2] Manual input (form fields)                  │
-│                                                  │
-└──────────────────────────────────────────────────┘
-```
+**TUI Event Add (unified `a` key):**
 
-Option 1 - Natural language:
+When pressing `a` to add event, the system auto-detects if an AI CLI is available:
+
+**With AI CLI (claude, codex, gemini, vibe, ollama)** - NLP quick-add:
 ```
-┌─ Quick Add ──────────────────────────────────────┐
+┌─ Quick Add Event ────────────────────────────────┐
 │                                                  │
 │  > tomorrow 9am meeting with boss_               │
 │                                                  │
-│  Press Enter to parse, Esc to cancel             │
+│  enter confirm • esc cancel                      │
 └──────────────────────────────────────────────────┘
 ```
 
-Option 2 - Form fields (current UI):
+**Without AI CLI** - Interactive form (step-by-step):
 ```
-┌─ Add Event ──────────────────────────────────────┐
-│  Title: Meeting with boss                        │
-│  Date:  2024-12-24                               │
-│  Time:  09:00                                    │
-│  Duration: 1h                                    │
+┌─ New Event  Step 1 of 4 ─────────────────────────┐
+│                                                  │
+│  What's the event?                               │
+│                                                  │
+│    [Meeting with boss_____________]              │
+│                                                  │
+│  enter next • esc cancel                         │
 └──────────────────────────────────────────────────┘
 ```
 
-Both paths end at the same confirmation screen before saving.
+Both paths end at the same calendar selection → reminder selection → confirmation flow.
 
 ### 3. Email-to-Calendar Extraction
 - Detect dates/times/events mentioned in emails
@@ -367,7 +362,7 @@ For summarization, build context from:
 - [x] Create confirmation dialog component (show AI result, allow edit/confirm/cancel)
 - [x] `maily c add "tomorrow 9am meeting"` - NLP event creation with confirmation
 - [x] Alarm prompt if user doesn't specify reminder time
-- [ ] TUI quick-add with NLP (hybrid: quick add vs form)
+- [x] TUI quick-add with NLP (`a` key auto-detects AI CLI, falls back to interactive form)
 - [ ] `e` key to extract events from email → confirm before adding
 - [ ] `s` key to summarize email (in email content view and today view, read-only)
 - [ ] `maily chat "question"` - one-shot Q&A

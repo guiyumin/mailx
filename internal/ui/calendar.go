@@ -27,6 +27,11 @@ const (
 	viewNLPCalendar    // NLP quick-add: select calendar
 	viewNLPReminder    // NLP quick-add: select reminder
 	viewNLPConfirm     // NLP quick-add: confirm
+	viewFormTitle      // Interactive form: title input
+	viewFormDateTime   // Interactive form: date/time input
+	viewFormCalendar   // Interactive form: select calendar
+	viewFormReminder   // Interactive form: select reminder
+	viewFormConfirm    // Interactive form: confirm
 )
 
 
@@ -54,6 +59,19 @@ type CalendarApp struct {
 	nlpReminderIdx int
 	nlpStartTime   time.Time
 	nlpEndTime     time.Time
+
+	// Interactive form fields (fallback when no AI CLI)
+	formTitleInput    textinput.Model
+	formDateInput     textinput.Model
+	formStartInput    textinput.Model
+	formEndInput      textinput.Model
+	formLocationInput textinput.Model
+	formCalendarIdx   int
+	formReminderIdx   int
+	formFocusField    int // 0=date, 1=start, 2=end, 3=location in datetime view
+
+	// Delete confirmation
+	deleteButtonIdx int // 0=Delete, 1=Cancel
 }
 
 type eventForm struct {
@@ -187,6 +205,16 @@ func (m *CalendarApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.view == viewNLPCalendar || m.view == viewNLPReminder || m.view == viewNLPConfirm {
 			return m.handleNLPSelectKeys(msg)
 		}
+		// Handle interactive form views
+		if m.view == viewFormTitle {
+			return m.handleFormTitleKeys(msg)
+		}
+		if m.view == viewFormDateTime {
+			return m.handleFormDateTimeKeys(msg)
+		}
+		if m.view == viewFormCalendar || m.view == viewFormReminder || m.view == viewFormConfirm {
+			return m.handleFormSelectKeys(msg)
+		}
 		return m.handleKeyPress(msg)
 	}
 
@@ -268,13 +296,17 @@ func (m *CalendarApp) handleCalendarKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectedIdx = 0
 		return m, m.loadEvents()
 	case "a":
-		// NLP quick-add
-		m.initNLPInput()
-		m.view = viewNLPInput
-	case "A":
-		// Form-based add
-		m.initAddForm()
-		m.view = viewAddEvent
+		// Check if AI CLI is available
+		aiClient := ai.NewClient()
+		if aiClient.Available() {
+			// NLP quick-add (AI-powered)
+			m.initNLPInput()
+			m.view = viewNLPInput
+		} else {
+			// Fallback to interactive form
+			m.initInteractiveForm()
+			m.view = viewFormTitle
+		}
 	case "e":
 		dayEvents := m.eventsForDate(m.selectedDate)
 		if len(dayEvents) > 0 && m.selectedIdx < len(dayEvents) {
@@ -284,6 +316,7 @@ func (m *CalendarApp) handleCalendarKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "d", "x", "backspace":
 		dayEvents := m.eventsForDate(m.selectedDate)
 		if len(dayEvents) > 0 && m.selectedIdx < len(dayEvents) {
+			m.deleteButtonIdx = 0 // Default to "Delete" button
 			m.view = viewDeleteConfirm
 		}
 	}
@@ -364,15 +397,26 @@ func (m *CalendarApp) handleFormInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m *CalendarApp) handleDeleteKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
-	case "y", "Y", "enter":
-		dayEvents := m.eventsForDate(m.selectedDate)
-		if m.selectedIdx < len(dayEvents) {
-			return m, m.deleteEvent(dayEvents[m.selectedIdx].ID)
+	case "left", "h":
+		if m.deleteButtonIdx > 0 {
+			m.deleteButtonIdx--
 		}
+	case "right", "l", "tab":
+		if m.deleteButtonIdx < 1 {
+			m.deleteButtonIdx++
+		}
+	case "enter":
+		if m.deleteButtonIdx == 0 {
+			// Delete
+			dayEvents := m.eventsForDate(m.selectedDate)
+			if m.selectedIdx < len(dayEvents) {
+				return m, m.deleteEvent(dayEvents[m.selectedIdx].ID)
+			}
+		}
+		// Cancel (or if delete index out of range)
 		m.view = viewCalendar
 		return m, nil
-
-	case "n", "N", "esc", "q":
+	case "esc", "q":
 		m.view = viewCalendar
 		return m, nil
 	}
@@ -684,6 +728,16 @@ func (m *CalendarApp) View() string {
 		return m.renderNLPReminder()
 	case viewNLPConfirm:
 		return m.renderNLPConfirm()
+	case viewFormTitle:
+		return m.renderFormTitle()
+	case viewFormDateTime:
+		return m.renderFormDateTime()
+	case viewFormCalendar:
+		return m.renderFormCalendar()
+	case viewFormReminder:
+		return m.renderFormReminder()
+	case viewFormConfirm:
+		return m.renderFormConfirm()
 	default:
 		return m.renderCalendar()
 	}
@@ -978,8 +1032,31 @@ func (m *CalendarApp) renderDeleteConfirm() string {
 
 	b.WriteString(fmt.Sprintf("Are you sure you want to delete \"%s\"?\n\n", eventTitle))
 
-	helpStyle := lipgloss.NewStyle().Foreground(components.Muted)
-	b.WriteString(helpStyle.Render("y: yes  n: no"))
+	// Button styles
+	selectedBtn := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Background(components.Danger).
+		Padding(0, 2)
+	unselectedBtn := lipgloss.NewStyle().
+		Foreground(components.Muted).
+		Padding(0, 2)
+
+	// Render buttons
+	var deleteBtn, cancelBtn string
+	if m.deleteButtonIdx == 0 {
+		deleteBtn = selectedBtn.Render("Delete")
+		cancelBtn = unselectedBtn.Render("Cancel")
+	} else {
+		deleteBtn = unselectedBtn.Render("Delete")
+		cancelBtn = selectedBtn.Background(components.Muted).Foreground(lipgloss.Color("#FFFFFF")).Render("Cancel")
+	}
+
+	b.WriteString(deleteBtn + "  " + cancelBtn)
+	b.WriteString("\n\n")
+
+	hintStyle := lipgloss.NewStyle().Foreground(components.Muted)
+	b.WriteString(hintStyle.Render("←/→ select • enter confirm • esc cancel"))
 
 	// Wrap with padding
 	dialogStyle := lipgloss.NewStyle().Padding(1, 2)
@@ -1010,8 +1087,7 @@ func (m *CalendarApp) renderHelpBar() string {
 
 	// Row 2: Actions
 	row2 := []string{
-		keyStyle.Render("a") + " new event (guided, recommended)",
-		keyStyle.Render("A") + " new event (form)",
+		keyStyle.Render("a") + " new event",
 		keyStyle.Render("e") + " edit",
 		keyStyle.Render("x") + " delete",
 		keyStyle.Render("q") + " quit",
@@ -1168,6 +1244,461 @@ func (m *CalendarApp) renderNLPEventBox() string {
 		b.WriteString(fmt.Sprintf("  │  Location: %-37s│\n", truncateStr(m.nlpParsed.Location, 37)))
 	}
 	b.WriteString("  └────────────────────────────────────────────────┘")
+
+	return b.String()
+}
+
+// ============================================================================
+// Interactive Form (fallback when no AI CLI available)
+// ============================================================================
+
+func (m *CalendarApp) initInteractiveForm() {
+	m.formTitleInput = textinput.New()
+	m.formTitleInput.Placeholder = "Meeting title"
+	m.formTitleInput.Focus()
+	m.formTitleInput.CharLimit = 100
+	m.formTitleInput.Width = 50
+
+	m.formDateInput = textinput.New()
+	m.formDateInput.Placeholder = "YYYY-MM-DD"
+	m.formDateInput.SetValue(m.selectedDate.Format("2006-01-02"))
+	m.formDateInput.CharLimit = 10
+	m.formDateInput.Width = 15
+
+	m.formStartInput = textinput.New()
+	m.formStartInput.Placeholder = "HH:MM"
+	m.formStartInput.SetValue("09:00")
+	m.formStartInput.CharLimit = 5
+	m.formStartInput.Width = 10
+
+	m.formEndInput = textinput.New()
+	m.formEndInput.Placeholder = "HH:MM"
+	m.formEndInput.SetValue("10:00")
+	m.formEndInput.CharLimit = 5
+	m.formEndInput.Width = 10
+
+	m.formLocationInput = textinput.New()
+	m.formLocationInput.Placeholder = "Location (optional)"
+	m.formLocationInput.CharLimit = 100
+	m.formLocationInput.Width = 40
+
+	m.formCalendarIdx = 0
+	m.formReminderIdx = 0
+	m.formFocusField = 0
+	m.err = nil
+}
+
+func (m *CalendarApp) handleFormTitleKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.view = viewCalendar
+		return m, nil
+	case "enter":
+		if m.formTitleInput.Value() != "" {
+			m.view = viewFormDateTime
+			m.formFocusField = 0
+			m.formDateInput.Focus()
+			m.formStartInput.Blur()
+			m.formEndInput.Blur()
+			m.formLocationInput.Blur()
+		}
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.formTitleInput, cmd = m.formTitleInput.Update(msg)
+	return m, cmd
+}
+
+func (m *CalendarApp) handleFormDateTimeKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.view = viewCalendar
+		return m, nil
+	case "tab":
+		m.formFocusField = (m.formFocusField + 1) % 4
+		m.updateFormDateTimeFocus()
+		return m, nil
+	case "shift+tab":
+		m.formFocusField = (m.formFocusField + 3) % 4
+		m.updateFormDateTimeFocus()
+		return m, nil
+	case "enter":
+		// Validate and move to calendar selection
+		if m.validateFormDateTime() {
+			m.view = viewFormCalendar
+		}
+		return m, nil
+	}
+
+	// Pass keystrokes to the focused input
+	var cmd tea.Cmd
+	switch m.formFocusField {
+	case 0:
+		m.formDateInput, cmd = m.formDateInput.Update(msg)
+	case 1:
+		m.formStartInput, cmd = m.formStartInput.Update(msg)
+	case 2:
+		m.formEndInput, cmd = m.formEndInput.Update(msg)
+	case 3:
+		m.formLocationInput, cmd = m.formLocationInput.Update(msg)
+	}
+	return m, cmd
+}
+
+func (m *CalendarApp) updateFormDateTimeFocus() {
+	m.formDateInput.Blur()
+	m.formStartInput.Blur()
+	m.formEndInput.Blur()
+	m.formLocationInput.Blur()
+
+	switch m.formFocusField {
+	case 0:
+		m.formDateInput.Focus()
+	case 1:
+		m.formStartInput.Focus()
+	case 2:
+		m.formEndInput.Focus()
+	case 3:
+		m.formLocationInput.Focus()
+	}
+}
+
+func (m *CalendarApp) validateFormDateTime() bool {
+	_, err := time.Parse("2006-01-02", m.formDateInput.Value())
+	if err != nil {
+		m.err = fmt.Errorf("invalid date format (use YYYY-MM-DD)")
+		return false
+	}
+
+	_, err = time.Parse("15:04", m.formStartInput.Value())
+	if err != nil {
+		m.err = fmt.Errorf("invalid start time (use HH:MM)")
+		return false
+	}
+
+	_, err = time.Parse("15:04", m.formEndInput.Value())
+	if err != nil {
+		m.err = fmt.Errorf("invalid end time (use HH:MM)")
+		return false
+	}
+
+	m.err = nil
+	return true
+}
+
+func (m *CalendarApp) handleFormSelectKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.view = viewCalendar
+		return m, nil
+	case "up", "k":
+		switch m.view {
+		case viewFormCalendar:
+			if m.formCalendarIdx > 0 {
+				m.formCalendarIdx--
+			}
+		case viewFormReminder:
+			if m.formReminderIdx > 0 {
+				m.formReminderIdx--
+			}
+		}
+	case "down", "j":
+		switch m.view {
+		case viewFormCalendar:
+			if m.formCalendarIdx < len(m.calendars)-1 {
+				m.formCalendarIdx++
+			}
+		case viewFormReminder:
+			if m.formReminderIdx < 5 {
+				m.formReminderIdx++
+			}
+		}
+	case "enter":
+		switch m.view {
+		case viewFormCalendar:
+			m.view = viewFormReminder
+		case viewFormReminder:
+			m.view = viewFormConfirm
+		case viewFormConfirm:
+			return m, m.createFormEvent()
+		}
+	}
+	return m, nil
+}
+
+func (m *CalendarApp) getFormReminderMinutes() int {
+	reminderOptions := []int{0, 5, 10, 15, 30, 60}
+	if m.formReminderIdx < len(reminderOptions) {
+		return reminderOptions[m.formReminderIdx]
+	}
+	return 0
+}
+
+func (m *CalendarApp) getFormStartTime() time.Time {
+	date, _ := time.Parse("2006-01-02", m.formDateInput.Value())
+	startTime, _ := time.Parse("15:04", m.formStartInput.Value())
+	return time.Date(date.Year(), date.Month(), date.Day(),
+		startTime.Hour(), startTime.Minute(), 0, 0, time.Local)
+}
+
+func (m *CalendarApp) getFormEndTime() time.Time {
+	date, _ := time.Parse("2006-01-02", m.formDateInput.Value())
+	endTime, _ := time.Parse("15:04", m.formEndInput.Value())
+	return time.Date(date.Year(), date.Month(), date.Day(),
+		endTime.Hour(), endTime.Minute(), 0, 0, time.Local)
+}
+
+func (m *CalendarApp) createFormEvent() tea.Cmd {
+	return func() tea.Msg {
+		var calendarID string
+		if len(m.calendars) > 0 && m.formCalendarIdx < len(m.calendars) {
+			calendarID = m.calendars[m.formCalendarIdx].ID
+		}
+
+		event := calendar.Event{
+			Title:              m.formTitleInput.Value(),
+			StartTime:          m.getFormStartTime(),
+			EndTime:            m.getFormEndTime(),
+			Location:           m.formLocationInput.Value(),
+			Calendar:           calendarID,
+			AlarmMinutesBefore: m.getFormReminderMinutes(),
+		}
+
+		id, err := m.client.CreateEvent(event)
+		if err != nil {
+			return errMsg{err}
+		}
+
+		return eventCreatedMsg{id}
+	}
+}
+
+// Interactive form render functions
+
+func (m *CalendarApp) renderFormTitle() string {
+	var b strings.Builder
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(components.Primary)
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#AAAAAA"))
+	stepStyle := lipgloss.NewStyle().Foreground(components.Muted)
+
+	b.WriteString(titleStyle.Render("New Event"))
+	b.WriteString("  ")
+	b.WriteString(stepStyle.Render("Step 1 of 4"))
+	b.WriteString("\n\n")
+
+	b.WriteString("  What's the event?\n\n")
+	b.WriteString("    " + m.formTitleInput.View())
+	b.WriteString("\n\n")
+	b.WriteString(hintStyle.Render("enter next • esc cancel"))
+
+	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
+}
+
+func (m *CalendarApp) renderFormDateTime() string {
+	var b strings.Builder
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(components.Primary)
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#AAAAAA"))
+	stepStyle := lipgloss.NewStyle().Foreground(components.Muted)
+	labelStyle := lipgloss.NewStyle().Width(12).Foreground(components.Muted)
+	focusedLabel := lipgloss.NewStyle().Width(12).Foreground(components.Primary).Bold(true)
+
+	b.WriteString(titleStyle.Render("New Event"))
+	b.WriteString("  ")
+	b.WriteString(stepStyle.Render("Step 2 of 4"))
+	b.WriteString("\n\n")
+
+	// Show title
+	b.WriteString("  ┌─ Event ──────────────────────────────────────────┐\n")
+	b.WriteString(fmt.Sprintf("  │  Title: %-41s│\n", truncateStr(m.formTitleInput.Value(), 41)))
+	b.WriteString("  └────────────────────────────────────────────────────┘\n\n")
+
+	b.WriteString("  When is it?\n\n")
+
+	// Date
+	label := "Date:"
+	if m.formFocusField == 0 {
+		b.WriteString("    " + focusedLabel.Render(label) + m.formDateInput.View() + "\n")
+	} else {
+		b.WriteString("    " + labelStyle.Render(label) + m.formDateInput.View() + "\n")
+	}
+
+	// Start time
+	label = "Start:"
+	if m.formFocusField == 1 {
+		b.WriteString("    " + focusedLabel.Render(label) + m.formStartInput.View() + "\n")
+	} else {
+		b.WriteString("    " + labelStyle.Render(label) + m.formStartInput.View() + "\n")
+	}
+
+	// End time
+	label = "End:"
+	if m.formFocusField == 2 {
+		b.WriteString("    " + focusedLabel.Render(label) + m.formEndInput.View() + "\n")
+	} else {
+		b.WriteString("    " + labelStyle.Render(label) + m.formEndInput.View() + "\n")
+	}
+
+	// Location
+	label = "Location:"
+	if m.formFocusField == 3 {
+		b.WriteString("    " + focusedLabel.Render(label) + m.formLocationInput.View() + "\n")
+	} else {
+		b.WriteString("    " + labelStyle.Render(label) + m.formLocationInput.View() + "\n")
+	}
+
+	// Error
+	if m.err != nil {
+		errStyle := lipgloss.NewStyle().Foreground(components.Danger)
+		b.WriteString("\n")
+		b.WriteString("    " + errStyle.Render(m.err.Error()))
+	}
+
+	b.WriteString("\n\n")
+	b.WriteString(hintStyle.Render("tab next field • enter next step • esc cancel"))
+
+	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
+}
+
+func (m *CalendarApp) renderFormCalendar() string {
+	var b strings.Builder
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(components.Primary)
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#AAAAAA"))
+	stepStyle := lipgloss.NewStyle().Foreground(components.Muted)
+	itemStyle := lipgloss.NewStyle().PaddingLeft(4)
+	cursorStyle := lipgloss.NewStyle().PaddingLeft(4).Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Background(components.Primary)
+
+	b.WriteString(titleStyle.Render("New Event"))
+	b.WriteString("  ")
+	b.WriteString(stepStyle.Render("Step 3 of 4"))
+	b.WriteString("\n\n")
+
+	// Show event summary
+	b.WriteString(m.renderFormEventBox())
+	b.WriteString("\n")
+
+	b.WriteString(titleStyle.Render("Select Calendar"))
+	b.WriteString("\n\n")
+
+	for i, cal := range m.calendars {
+		if i == m.formCalendarIdx {
+			b.WriteString(cursorStyle.Render("> " + cal.Title))
+		} else {
+			b.WriteString(itemStyle.Render("  " + cal.Title))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(hintStyle.Render("↑/k up • ↓/j down • enter select • esc cancel"))
+
+	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
+}
+
+func (m *CalendarApp) renderFormReminder() string {
+	var b strings.Builder
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(components.Primary)
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#AAAAAA"))
+	stepStyle := lipgloss.NewStyle().Foreground(components.Muted)
+	itemStyle := lipgloss.NewStyle().PaddingLeft(4)
+	cursorStyle := lipgloss.NewStyle().PaddingLeft(4).Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Background(components.Primary)
+
+	b.WriteString(titleStyle.Render("New Event"))
+	b.WriteString("  ")
+	b.WriteString(stepStyle.Render("Step 4 of 4"))
+	b.WriteString("\n\n")
+
+	// Show event summary
+	b.WriteString(m.renderFormEventBox())
+	b.WriteString("\n")
+
+	b.WriteString(titleStyle.Render("Reminder"))
+	b.WriteString("\n\n")
+
+	reminderOptions := []string{
+		"No reminder",
+		"5 minutes before",
+		"10 minutes before",
+		"15 minutes before",
+		"30 minutes before",
+		"1 hour before",
+	}
+
+	for i, opt := range reminderOptions {
+		if i == m.formReminderIdx {
+			b.WriteString(cursorStyle.Render("> " + opt))
+		} else {
+			b.WriteString(itemStyle.Render("  " + opt))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(hintStyle.Render("↑/k up • ↓/j down • enter select • esc cancel"))
+
+	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
+}
+
+func (m *CalendarApp) renderFormConfirm() string {
+	var b strings.Builder
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(components.Primary)
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#AAAAAA"))
+
+	b.WriteString(titleStyle.Render("Confirm Event"))
+	b.WriteString("\n\n")
+
+	startTime := m.getFormStartTime()
+	endTime := m.getFormEndTime()
+
+	// Event details box
+	b.WriteString("  ┌────────────────────────────────────────────────┐\n")
+	b.WriteString(fmt.Sprintf("  │  Title:    %-35s│\n", truncateStr(m.formTitleInput.Value(), 35)))
+	b.WriteString(fmt.Sprintf("  │  Date:     %-35s│\n", startTime.Format("Monday, Jan 2, 2006")))
+	b.WriteString(fmt.Sprintf("  │  Time:     %-35s│\n", fmt.Sprintf("%s - %s", startTime.Format("3:04 PM"), endTime.Format("3:04 PM"))))
+	if m.formLocationInput.Value() != "" {
+		b.WriteString(fmt.Sprintf("  │  Location: %-35s│\n", truncateStr(m.formLocationInput.Value(), 35)))
+	}
+	calName := "Default"
+	if len(m.calendars) > 0 && m.formCalendarIdx < len(m.calendars) {
+		calName = m.calendars[m.formCalendarIdx].Title
+	}
+	b.WriteString(fmt.Sprintf("  │  Calendar: %-35s│\n", truncateStr(calName, 35)))
+	reminderStr := "None"
+	if mins := m.getFormReminderMinutes(); mins > 0 {
+		if mins == 60 {
+			reminderStr = "1 hour before"
+		} else {
+			reminderStr = fmt.Sprintf("%d minutes before", mins)
+		}
+	}
+	b.WriteString(fmt.Sprintf("  │  Reminder: %-35s│\n", reminderStr))
+	b.WriteString("  └────────────────────────────────────────────────┘\n")
+
+	b.WriteString("\n")
+	b.WriteString(hintStyle.Render("enter create • esc cancel"))
+
+	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
+}
+
+func (m *CalendarApp) renderFormEventBox() string {
+	var b strings.Builder
+
+	startTime := m.getFormStartTime()
+	endTime := m.getFormEndTime()
+
+	b.WriteString("  ┌─ Event ──────────────────────────────────────────┐\n")
+	b.WriteString(fmt.Sprintf("  │  Title:    %-39s│\n", truncateStr(m.formTitleInput.Value(), 39)))
+	b.WriteString(fmt.Sprintf("  │  Date:     %-39s│\n", startTime.Format("Monday, Jan 2, 2006")))
+	b.WriteString(fmt.Sprintf("  │  Time:     %-39s│\n", fmt.Sprintf("%s - %s", startTime.Format("3:04 PM"), endTime.Format("3:04 PM"))))
+	if m.formLocationInput.Value() != "" {
+		b.WriteString(fmt.Sprintf("  │  Location: %-39s│\n", truncateStr(m.formLocationInput.Value(), 39)))
+	}
+	b.WriteString("  └────────────────────────────────────────────────────┘")
 
 	return b.String()
 }

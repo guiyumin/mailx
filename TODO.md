@@ -31,7 +31,7 @@
 - [x] `--debug` flag to show raw AI response
 - [x] Interactive calendar selection (prompts user to pick from list)
 - [x] `maily c list` to list available calendars
-- [x] TUI quick-add with NLP (`a` key) and form add (`A` key)
+- [x] TUI quick-add with NLP (`a` key), falls back to interactive form when no AI CLI
 
 ### Core Features
 - [x] Local email cache for fast startup
