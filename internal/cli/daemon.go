@@ -184,8 +184,8 @@ func checkDaemonStatus() {
 	// Show recent logs
 	logData, err := os.ReadFile(logFile)
 	if err != nil {
-		fmt.Println("\nNo logs available (log file not found)")
-		fmt.Println("Restart the daemon to create the log file: maily daemon stop && maily daemon start")
+		fmt.Println("\nNo logs available (log file not found) for now")
+		fmt.Println("Maybe you have not run maily since last upgrade yet")
 		return
 	}
 
