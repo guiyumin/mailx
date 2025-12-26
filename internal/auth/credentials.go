@@ -44,6 +44,17 @@ func GmailCredentials(email, password string) Credentials {
 	}
 }
 
+func YahooCredentials(email, password string) Credentials {
+	return Credentials{
+		Email:    email,
+		Password: password,
+		IMAPHost: "imap.mail.yahoo.com",
+		IMAPPort: 993,
+		SMTPHost: "smtp.mail.yahoo.com",
+		SMTPPort: 587,
+	}
+}
+
 func LoadAccountStore() (*AccountStore, error) {
 	configDir, err := getConfigDir()
 	if err != nil {

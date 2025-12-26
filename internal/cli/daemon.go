@@ -311,7 +311,7 @@ func runDaemon() {
 	}
 
 	if len(store.Accounts) == 0 {
-		fmt.Println("No accounts configured. Run 'maily login gmail' first.")
+		fmt.Println("No accounts configured. Run 'maily login' first.")
 		if isTerminal {
 			os.Exit(1)
 		}

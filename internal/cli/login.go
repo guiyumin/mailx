@@ -12,28 +12,53 @@ import (
 var loginCmd = &cobra.Command{
 	Use:   "login [provider]",
 	Short: "Add an email account",
-	Long:  "Add an email account. Currently supports: gmail",
-	Args:  cobra.ExactArgs(1),
+	Long:  "Add an email account. Currently supports: gmail, yahoo",
+	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		handleLogin(args[0])
+		if len(args) == 0 {
+			selectAndLogin()
+		} else {
+			handleLogin(args[0])
+		}
 	},
+}
+
+func selectAndLogin() {
+	selector := ui.NewProviderSelector()
+	p := tea.NewProgram(
+		selector,
+		tea.WithAltScreen(),
+	)
+
+	finalModel, err := p.Run()
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if sel, ok := finalModel.(ui.ProviderSelector); ok && sel.Selected() != "" {
+		loginWithProvider(sel.Selected())
+	}
 }
 
 func handleLogin(provider string) {
 	switch provider {
 	case "gmail":
-		loginGmail()
+		loginWithProvider("gmail")
+	case "yahoo":
+		loginWithProvider("yahoo")
 	default:
 		fmt.Printf("Unknown provider: %s\n", provider)
 		fmt.Println()
 		fmt.Println("Available providers:")
 		fmt.Println("  gmail    Login with Gmail")
+		fmt.Println("  yahoo    Login with Yahoo Mail")
 		os.Exit(1)
 	}
 }
 
-func loginGmail() {
-	loginApp := ui.NewLoginApp("gmail")
+func loginWithProvider(provider string) {
+	loginApp := ui.NewLoginApp(provider)
 	p := tea.NewProgram(
 		loginApp,
 		tea.WithAltScreen(),

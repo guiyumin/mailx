@@ -17,11 +17,10 @@ var (
 
 var searchCmd = &cobra.Command{
 	Use:   "search",
-	Short: "Search emails with Gmail query syntax",
-	Long: `Search emails using Gmail's powerful search syntax.
+	Short: "Search emails",
+	Long: `Search emails in your mailbox.
 
-Gmail search syntax examples:
-  temu                       Simple text search
+For Gmail accounts, full Gmail search syntax is supported:
   from:sender@example.com    Emails from a sender
   to:recipient@example.com   Emails to a recipient
   subject:hello              Emails with subject containing 'hello'
@@ -35,10 +34,12 @@ Gmail search syntax examples:
   category:promotions        Promotional emails
   category:social            Social emails
   larger:5M                  Emails larger than 5MB
-  label:important            Emails with label`,
+  label:important            Emails with label
+
+For other providers (Yahoo, etc.), basic text search is used:
+  Simply enter keywords to search in email body and headers.`,
 	Example: `  maily search -a me@gmail.com -q "from:temu"
-  maily search -a me@gmail.com -q "category:promotions older_than:30d"
-  maily search -a me@gmail.com -q "has:attachment is:unread"`,
+  maily search -a me@yahoo.com -q "meeting notes"`,
 	Run: func(cmd *cobra.Command, args []string) {
 		handleSearch()
 	},
@@ -46,7 +47,7 @@ Gmail search syntax examples:
 
 func init() {
 	searchCmd.Flags().StringVarP(&searchAccount, "account", "a", "", "Account email to search")
-	searchCmd.Flags().StringVarP(&searchQuery, "query", "q", "", "Gmail search query (uses Gmail syntax)")
+	searchCmd.Flags().StringVarP(&searchQuery, "query", "q", "", "Search query")
 	searchCmd.MarkFlagRequired("query")
 }
 
@@ -60,7 +61,7 @@ func handleSearch() {
 	if len(store.Accounts) == 0 {
 		fmt.Println("No accounts configured. Run:")
 		fmt.Println()
-		fmt.Println("  maily login gmail")
+		fmt.Println("  maily login")
 		fmt.Println()
 		os.Exit(1)
 	}

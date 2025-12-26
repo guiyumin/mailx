@@ -32,7 +32,7 @@ func runTodayTUI() {
 	if len(store.Accounts) == 0 {
 		fmt.Println("No accounts configured. Run:")
 		fmt.Println()
-		fmt.Println("  maily login gmail")
+		fmt.Println("  maily login")
 		fmt.Println()
 		os.Exit(1)
 	}

@@ -26,7 +26,7 @@ func handleAccounts() {
 	if len(store.Accounts) == 0 {
 		fmt.Println("No accounts configured.")
 		fmt.Println()
-		fmt.Println("Run: maily login gmail")
+		fmt.Println("Run: maily login")
 		return
 	}
 

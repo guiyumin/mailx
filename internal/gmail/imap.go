@@ -594,9 +594,86 @@ func (c *IMAPClient) mailboxExists(name string) bool {
 	return listCmd.Next() != nil
 }
 
+func (c *IMAPClient) findArchiveFolder() (string, error) {
+	// Try Gmail-specific archive folder first
+	gmailArchive := "[Gmail]/All Mail"
+	if c.mailboxExists(gmailArchive) {
+		return gmailArchive, nil
+	}
+
+	// Try to find folder with \Archive special-use attribute
+	listCmd := c.client.List("", "*", &imap.ListOptions{
+		ReturnStatus: &imap.StatusOptions{},
+	})
+	defer listCmd.Close()
+
+	for {
+		mbox := listCmd.Next()
+		if mbox == nil {
+			break
+		}
+		for _, attr := range mbox.Attrs {
+			if attr == imap.MailboxAttrArchive {
+				return mbox.Mailbox, nil
+			}
+		}
+	}
+
+	// Fallback to common archive folder names
+	fallbacks := []string{"Archive", "All Mail"}
+	for _, name := range fallbacks {
+		if c.mailboxExists(name) {
+			return name, nil
+		}
+	}
+
+	return "", fmt.Errorf("archive folder not found")
+}
+
+func (c *IMAPClient) findDraftsFolder() (string, error) {
+	// Try Gmail-specific drafts folder first
+	gmailDrafts := "[Gmail]/Drafts"
+	if c.mailboxExists(gmailDrafts) {
+		return gmailDrafts, nil
+	}
+
+	// Try to find folder with \Drafts special-use attribute
+	listCmd := c.client.List("", "*", &imap.ListOptions{
+		ReturnStatus: &imap.StatusOptions{},
+	})
+	defer listCmd.Close()
+
+	for {
+		mbox := listCmd.Next()
+		if mbox == nil {
+			break
+		}
+		for _, attr := range mbox.Attrs {
+			if attr == imap.MailboxAttrDrafts {
+				return mbox.Mailbox, nil
+			}
+		}
+	}
+
+	// Fallback to common drafts folder names
+	fallbacks := []string{"Drafts", "Draft"}
+	for _, name := range fallbacks {
+		if c.mailboxExists(name) {
+			return name, nil
+		}
+	}
+
+	return "", fmt.Errorf("drafts folder not found")
+}
+
 func (c *IMAPClient) ArchiveMessages(uids []imap.UID) error {
 	if len(uids) == 0 {
 		return nil
+	}
+
+	archiveFolder, err := c.findArchiveFolder()
+	if err != nil {
+		return err
 	}
 
 	uidSet := imap.UIDSet{}
@@ -604,8 +681,7 @@ func (c *IMAPClient) ArchiveMessages(uids []imap.UID) error {
 		uidSet.AddNum(uid)
 	}
 
-	// Move to All Mail (archive in Gmail)
-	if _, err := c.client.Move(uidSet, "[Gmail]/All Mail").Wait(); err != nil {
+	if _, err := c.client.Move(uidSet, archiveFolder).Wait(); err != nil {
 		return err
 	}
 
@@ -632,6 +708,11 @@ func (c *IMAPClient) MarkMessagesAsRead(uids []imap.UID) error {
 
 // SaveDraft saves an email to the Drafts folder
 func (c *IMAPClient) SaveDraft(to, subject, body string) error {
+	draftsFolder, err := c.findDraftsFolder()
+	if err != nil {
+		return err
+	}
+
 	// Build the email message
 	msg := fmt.Sprintf("From: %s\r\n"+
 		"To: %s\r\n"+
@@ -642,7 +723,7 @@ func (c *IMAPClient) SaveDraft(to, subject, body string) error {
 		"%s", c.creds.Email, to, subject, body)
 
 	// Append to Drafts folder with Draft flag
-	appendCmd := c.client.Append("[Gmail]/Drafts", int64(len(msg)), nil)
+	appendCmd := c.client.Append(draftsFolder, int64(len(msg)), nil)
 	if _, err := appendCmd.Write([]byte(msg)); err != nil {
 		return fmt.Errorf("failed to write draft: %w", err)
 	}
@@ -652,11 +733,12 @@ func (c *IMAPClient) SaveDraft(to, subject, body string) error {
 	return nil
 }
 
-// SearchMessages searches for emails using Gmail's X-GM-RAW extension
-// This supports Gmail's full search syntax (from:, has:attachment, category:, etc.)
+// SearchMessages searches for emails
+// For Gmail, uses X-GM-RAW extension with full search syntax
+// For other providers, uses standard IMAP TEXT search
 func (c *IMAPClient) SearchMessages(mailbox string, query string) ([]Email, error) {
-	// Use Gmail's X-GM-RAW for powerful search
-	uids, err := GmailSearch(c.creds, mailbox, query)
+	// Use provider-appropriate search method
+	uids, err := Search(c.creds, mailbox, query)
 	if err != nil {
 		return nil, fmt.Errorf("search failed: %w", err)
 	}

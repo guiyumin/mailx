@@ -8,26 +8,48 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Label display names for Gmail system labels
+// Label display names for system folders (Gmail and other providers)
 var labelDisplayNames = map[string]string{
-	"INBOX":             "Inbox",
+	// Standard
+	"INBOX": "Inbox",
+	// Gmail
 	"[Gmail]/Starred":   "Starred",
 	"[Gmail]/Sent Mail": "Sent",
 	"[Gmail]/Drafts":    "Drafts",
 	"[Gmail]/Spam":      "Spam",
 	"[Gmail]/Trash":     "Trash",
 	"[Gmail]/All Mail":  "All Mail",
+	// Yahoo / Standard IMAP
+	"Sent":      "Sent",
+	"Draft":     "Drafts",
+	"Drafts":    "Drafts",
+	"Trash":     "Trash",
+	"Spam":      "Spam",
+	"Bulk Mail": "Spam",
+	"Archive":   "Archive",
+	"Junk":      "Spam",
 }
 
 // System folder sort order (lower = higher priority)
 var folderSortOrder = map[string]int{
-	"INBOX":             0,
+	// Standard
+	"INBOX": 0,
+	// Gmail
 	"[Gmail]/Starred":   1,
 	"[Gmail]/Sent Mail": 2,
 	"[Gmail]/Drafts":    3,
 	"[Gmail]/All Mail":  4,
 	"[Gmail]/Spam":      5,
 	"[Gmail]/Trash":     6,
+	// Yahoo / Standard IMAP
+	"Sent":      2,
+	"Draft":     3,
+	"Drafts":    3,
+	"Archive":   4,
+	"Spam":      5,
+	"Bulk Mail": 5,
+	"Junk":      5,
+	"Trash":     6,
 }
 
 // LabelPicker is a full-screen view for selecting a label/folder
@@ -58,6 +80,19 @@ func NewLabelPicker() LabelPicker {
 	}
 }
 
+// Standard IMAP folder names that should be treated as system folders
+var systemFolders = map[string]bool{
+	"INBOX":     true,
+	"Sent":      true,
+	"Draft":     true,
+	"Drafts":    true,
+	"Trash":     true,
+	"Spam":      true,
+	"Bulk Mail": true,
+	"Archive":   true,
+	"Junk":      true,
+}
+
 func (p *LabelPicker) SetLabels(labels []string) {
 	folders := make([]string, 0)
 	customLabels := make([]string, 0)
@@ -67,7 +102,8 @@ func (p *LabelPicker) SetLabels(labels []string) {
 			// Skip the parent container - not a real folder
 			continue
 		}
-		if label == "INBOX" || strings.HasPrefix(label, "[Gmail]/") {
+		// Check if it's a system folder (Gmail or standard IMAP)
+		if strings.HasPrefix(label, "[Gmail]/") || systemFolders[label] {
 			folders = append(folders, label)
 		} else {
 			customLabels = append(customLabels, label)

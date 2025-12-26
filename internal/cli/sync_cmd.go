@@ -33,7 +33,7 @@ func runSync() {
 	}
 
 	if len(store.Accounts) == 0 {
-		fmt.Println("No accounts configured. Run 'maily login gmail' first.")
+		fmt.Println("No accounts configured. Run 'maily login' first.")
 		os.Exit(1)
 	}
 

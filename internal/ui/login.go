@@ -54,10 +54,17 @@ type verifyErrorMsg struct {
 
 func NewLoginApp(provider string) LoginApp {
 	emailInput := textinput.New()
-	emailInput.Placeholder = "you@gmail.com"
 	emailInput.Focus()
 	emailInput.CharLimit = 100
 	emailInput.Width = 40
+
+	// Set placeholder based on provider
+	switch provider {
+	case "yahoo":
+		emailInput.Placeholder = "you@yahoo.com"
+	default:
+		emailInput.Placeholder = "you@gmail.com"
+	}
 
 	passwordInput := textinput.New()
 	passwordInput.Placeholder = "App Password"
@@ -178,6 +185,7 @@ func (a LoginApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (a LoginApp) verifyCredentials() tea.Cmd {
 	email := a.emailInput.Value()
 	password := a.passwordInput.Value()
+	provider := a.provider
 
 	// Clean password (remove all whitespace)
 	var cleaned strings.Builder
@@ -189,10 +197,17 @@ func (a LoginApp) verifyCredentials() tea.Cmd {
 	password = cleaned.String()
 
 	return func() tea.Msg {
-		creds := auth.GmailCredentials(email, password)
+		var creds auth.Credentials
+		switch provider {
+		case "yahoo":
+			creds = auth.YahooCredentials(email, password)
+		default:
+			creds = auth.GmailCredentials(email, password)
+		}
+
 		account := &auth.Account{
 			Name:        email,
-			Provider:    "gmail",
+			Provider:    provider,
 			Credentials: creds,
 		}
 
@@ -262,9 +277,17 @@ func (a LoginApp) View() string {
 			Foreground(lipgloss.Color("#EF4444")).
 			Render(fmt.Sprintf("✗ Login failed: %v", a.err))
 
+		var hintText string
+		switch a.provider {
+		case "yahoo":
+			hintText = "\n\nMake sure you:\n• Used an App Password (not your regular password)\n• Have 2-Step Verification enabled\n\nPress Enter to exit."
+		default:
+			hintText = "\n\nMake sure you:\n• Used an App Password (not your regular password)\n• Have IMAP enabled in Gmail settings\n\nPress Enter to exit."
+		}
+
 		hint := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#9CA3AF")).
-			Render("\n\nMake sure you:\n• Used an App Password (not your regular password)\n• Have IMAP enabled in Gmail settings\n\nPress Enter to exit.")
+			Render(hintText)
 
 		content = lipgloss.Place(
 			a.width,
@@ -300,11 +323,16 @@ func (a LoginApp) renderInputForm() string {
 		BorderForeground(lipgloss.Color("#7C3AED")).
 		Padding(1, 3)
 
-	// Title
-	title := titleStyle.Render("Gmail Login")
-
-	// Instructions
-	instructions := hintStyle.Render("You need an App Password to continue.\n\n1. Enable 2-Step Verification (if not done)\n2. Go to: myaccount.google.com/apppasswords\n3. Type a name and click Create\n")
+	// Title and instructions based on provider
+	var title, instructions string
+	switch a.provider {
+	case "yahoo":
+		title = titleStyle.Render("Yahoo Mail Login")
+		instructions = hintStyle.Render("You need an App Password to continue.\n\n1. Go to: login.yahoo.com/account/security\n2. Click 'Generate app password'\n3. Select 'Other App' and generate\n")
+	default:
+		title = titleStyle.Render("Gmail Login")
+		instructions = hintStyle.Render("You need an App Password to continue.\n\n1. Enable 2-Step Verification (if not done)\n2. Go to: myaccount.google.com/apppasswords\n3. Type a name and click Create\n")
+	}
 
 	// Email field
 	emailLabel := labelStyle

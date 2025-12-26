@@ -296,8 +296,8 @@ func RenderError(width, height int, err error, accountEmail string, canSwitch bo
 		fixHintStyle := lipgloss.NewStyle().
 			Foreground(Muted).
 			Italic(true)
-		fixHint = "\n\n" + fixHintStyle.Render("To fix: Generate a new App Password at myaccount.google.com") +
-			"\n" + fixHintStyle.Render("Then run: maily login gmail")
+		fixHint = "\n\n" + fixHintStyle.Render("To fix: Generate a new App Password for your email provider") +
+			"\n" + fixHintStyle.Render("Then run: maily login")
 	}
 
 	hint := ""
