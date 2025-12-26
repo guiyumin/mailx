@@ -19,7 +19,9 @@ var updateCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Check if installed via Homebrew
 		if executable, err := os.Executable(); err == nil {
-			if strings.Contains(executable, "/Cellar/") {
+			// Resolve symlink to get real path (Homebrew uses symlinks)
+			resolved, _ := filepath.EvalSymlinks(executable)
+			if strings.Contains(resolved, "/Cellar/") {
 				fmt.Println("Maily is installed via Homebrew.")
 				fmt.Println("Please run 'brew upgrade maily' instead.")
 				return nil
