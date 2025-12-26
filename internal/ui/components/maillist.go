@@ -104,6 +104,15 @@ func (m *MailList) RemoveByUID(uid imap.UID) {
 	}
 }
 
+func (m *MailList) MarkAsRead(uid imap.UID) {
+	for i := range m.emails {
+		if m.emails[i].UID == uid {
+			m.emails[i].Unread = false
+			return
+		}
+	}
+}
+
 func (m *MailList) ScrollUp() {
 	if m.cursor > 0 {
 		m.cursor--

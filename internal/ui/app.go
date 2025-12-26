@@ -367,6 +367,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if email.Unread {
 						uid := email.UID
 						account := a.currentAccount()
+						// Update in-memory state immediately for responsive UI
+						a.mailList.MarkAsRead(uid)
 						go func() {
 							a.imap.MarkAsRead(uid)
 							// Update disk cache
