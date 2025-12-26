@@ -68,7 +68,7 @@ For when the project has more traction. Unverified OAuth apps show scary warning
 
 ### Calendar Features (Future)
 - [ ] Extract events from email (`e` key)
-- [ ] Today view (split panel: emails + events)
+- [x] Today view (split panel: emails + events)
 
 ### Other Ideas
 - [ ] Thread view (group emails by conversation)
