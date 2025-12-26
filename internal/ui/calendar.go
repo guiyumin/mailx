@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"maily/internal/ai"
 	"maily/internal/calendar"
 	"maily/internal/ui/components"
 )
@@ -21,6 +22,11 @@ const (
 	viewAddEvent
 	viewEditEvent
 	viewDeleteConfirm
+	viewNLPInput       // NLP quick-add: text input
+	viewNLPParsing     // NLP quick-add: waiting for AI
+	viewNLPCalendar    // NLP quick-add: select calendar
+	viewNLPReminder    // NLP quick-add: select reminder
+	viewNLPConfirm     // NLP quick-add: confirm
 )
 
 
@@ -40,6 +46,14 @@ type CalendarApp struct {
 	// Form fields for add/edit
 	form         eventForm
 	formFocusIdx int
+
+	// NLP quick-add fields
+	nlpInput       textinput.Model
+	nlpParsed      *ai.ParsedEvent
+	nlpCalendarIdx int
+	nlpReminderIdx int
+	nlpStartTime   time.Time
+	nlpEndTime     time.Time
 }
 
 type eventForm struct {
@@ -69,6 +83,12 @@ type eventDeletedMsg struct{}
 
 type errMsg struct {
 	err error
+}
+
+type nlpParsedMsg struct {
+	parsed    *ai.ParsedEvent
+	startTime time.Time
+	endTime   time.Time
 }
 
 // NewCalendarApp creates a new calendar TUI
@@ -143,12 +163,29 @@ func (m *CalendarApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.err = msg.err
+		m.view = viewCalendar
+		return m, nil
+
+	case nlpParsedMsg:
+		m.nlpParsed = msg.parsed
+		m.nlpStartTime = msg.startTime
+		m.nlpEndTime = msg.endTime
+		m.nlpCalendarIdx = 0
+		m.nlpReminderIdx = 0
+		m.view = viewNLPCalendar
 		return m, nil
 
 	case tea.KeyMsg:
 		// Handle form input first if in form view
 		if m.view == viewAddEvent || m.view == viewEditEvent {
 			return m.handleFormInput(msg)
+		}
+		// Handle NLP views
+		if m.view == viewNLPInput {
+			return m.handleNLPInputKeys(msg)
+		}
+		if m.view == viewNLPCalendar || m.view == viewNLPReminder || m.view == viewNLPConfirm {
+			return m.handleNLPSelectKeys(msg)
 		}
 		return m.handleKeyPress(msg)
 	}
@@ -231,6 +268,11 @@ func (m *CalendarApp) handleCalendarKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectedIdx = 0
 		return m, m.loadEvents()
 	case "a":
+		// NLP quick-add
+		m.initNLPInput()
+		m.view = viewNLPInput
+	case "A":
+		// Form-based add
 		m.initAddForm()
 		m.view = viewAddEvent
 	case "e":
@@ -415,6 +457,144 @@ func (m *CalendarApp) updateFormFocus() {
 	}
 }
 
+// NLP Quick-Add functions
+func (m *CalendarApp) initNLPInput() {
+	m.nlpInput = textinput.New()
+	m.nlpInput.Placeholder = "tomorrow 9am meeting with Jerry"
+	m.nlpInput.Focus()
+	m.nlpInput.CharLimit = 200
+	m.nlpInput.Width = 50
+	m.nlpParsed = nil
+	m.err = nil
+}
+
+func (m *CalendarApp) handleNLPInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.view = viewCalendar
+		return m, nil
+	case "enter":
+		if m.nlpInput.Value() != "" {
+			m.view = viewNLPParsing
+			return m, m.parseNLPInput()
+		}
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.nlpInput, cmd = m.nlpInput.Update(msg)
+	return m, cmd
+}
+
+func (m *CalendarApp) handleNLPSelectKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.view = viewCalendar
+		return m, nil
+	case "up", "k":
+		switch m.view {
+		case viewNLPCalendar:
+			if m.nlpCalendarIdx > 0 {
+				m.nlpCalendarIdx--
+			}
+		case viewNLPReminder:
+			if m.nlpReminderIdx > 0 {
+				m.nlpReminderIdx--
+			}
+		}
+	case "down", "j":
+		switch m.view {
+		case viewNLPCalendar:
+			if m.nlpCalendarIdx < len(m.calendars)-1 {
+				m.nlpCalendarIdx++
+			}
+		case viewNLPReminder:
+			if m.nlpReminderIdx < 5 { // 6 options: 0, 5, 10, 15, 30, 60
+				m.nlpReminderIdx++
+			}
+		}
+	case "enter":
+		switch m.view {
+		case viewNLPCalendar:
+			m.view = viewNLPReminder
+		case viewNLPReminder:
+			m.view = viewNLPConfirm
+		case viewNLPConfirm:
+			return m, m.createNLPEvent()
+		}
+	}
+	return m, nil
+}
+
+func (m *CalendarApp) parseNLPInput() tea.Cmd {
+	return func() tea.Msg {
+		aiClient := ai.NewClient()
+		if !aiClient.Available() {
+			return errMsg{fmt.Errorf("no AI CLI found (install claude, codex, gemini, or ollama)")}
+		}
+
+		prompt := ai.ParseCalendarEventPrompt(m.nlpInput.Value(), time.Now())
+		response, err := aiClient.Call(prompt)
+		if err != nil {
+			return errMsg{err}
+		}
+
+		parsed, err := ai.ParseEventResponse(response)
+		if err != nil {
+			return errMsg{err}
+		}
+
+		startTime, err := parsed.GetStartTime()
+		if err != nil {
+			return errMsg{fmt.Errorf("invalid start time: %v", err)}
+		}
+
+		endTime, err := parsed.GetEndTime()
+		if err != nil {
+			return errMsg{fmt.Errorf("invalid end time: %v", err)}
+		}
+
+		return nlpParsedMsg{
+			parsed:    parsed,
+			startTime: startTime,
+			endTime:   endTime,
+		}
+	}
+}
+
+func (m *CalendarApp) getNLPReminderMinutes() int {
+	reminderOptions := []int{0, 5, 10, 15, 30, 60}
+	if m.nlpReminderIdx < len(reminderOptions) {
+		return reminderOptions[m.nlpReminderIdx]
+	}
+	return 0
+}
+
+func (m *CalendarApp) createNLPEvent() tea.Cmd {
+	return func() tea.Msg {
+		var calendarID string
+		if len(m.calendars) > 0 && m.nlpCalendarIdx < len(m.calendars) {
+			calendarID = m.calendars[m.nlpCalendarIdx].ID
+		}
+
+		event := calendar.Event{
+			Title:              m.nlpParsed.Title,
+			StartTime:          m.nlpStartTime,
+			EndTime:            m.nlpEndTime,
+			Location:           m.nlpParsed.Location,
+			Calendar:           calendarID,
+			AlarmMinutesBefore: m.getNLPReminderMinutes(),
+		}
+
+		id, err := m.client.CreateEvent(event)
+		if err != nil {
+			return errMsg{err}
+		}
+
+		return eventCreatedMsg{id}
+	}
+}
+
 func (m *CalendarApp) saveEvent() tea.Cmd {
 	return func() tea.Msg {
 		date, err := time.Parse("2006-01-02", m.form.date.Value())
@@ -494,6 +674,16 @@ func (m *CalendarApp) View() string {
 		return m.renderForm("Edit Event")
 	case viewDeleteConfirm:
 		return m.renderDeleteConfirm()
+	case viewNLPInput:
+		return m.renderNLPInput()
+	case viewNLPParsing:
+		return m.renderNLPParsing()
+	case viewNLPCalendar:
+		return m.renderNLPCalendar()
+	case viewNLPReminder:
+		return m.renderNLPReminder()
+	case viewNLPConfirm:
+		return m.renderNLPConfirm()
 	default:
 		return m.renderCalendar()
 	}
@@ -820,7 +1010,8 @@ func (m *CalendarApp) renderHelpBar() string {
 
 	// Row 2: Actions
 	row2 := []string{
-		keyStyle.Render("a") + " add",
+		keyStyle.Render("a") + " easy add",
+		keyStyle.Render("A") + " add (event form)",
 		keyStyle.Render("e") + " edit",
 		keyStyle.Render("x") + " delete",
 		keyStyle.Render("q") + " quit",
@@ -829,3 +1020,155 @@ func (m *CalendarApp) renderHelpBar() string {
 	return helpStyle.Render(strings.Join(row1, "  ")) + "\n" +
 		helpStyle.Render(strings.Join(row2, "  "))
 }
+
+// NLP Quick-Add render functions
+func (m *CalendarApp) renderNLPInput() string {
+	var b strings.Builder
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(components.Primary)
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#AAAAAA"))
+
+	b.WriteString(titleStyle.Render("Quick Add Event"))
+	b.WriteString("\n\n")
+	b.WriteString("    " + m.nlpInput.View())
+	b.WriteString("\n\n")
+	b.WriteString(hintStyle.Render("enter confirm • esc cancel"))
+
+	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
+}
+
+func (m *CalendarApp) renderNLPParsing() string {
+	var b strings.Builder
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(components.Primary)
+
+	b.WriteString(titleStyle.Render("Parsing..."))
+	b.WriteString("\n\n")
+	b.WriteString("    Using AI to parse: \"" + m.nlpInput.Value() + "\"")
+
+	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
+}
+
+func (m *CalendarApp) renderNLPCalendar() string {
+	var b strings.Builder
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(components.Primary)
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#AAAAAA"))
+	itemStyle := lipgloss.NewStyle().PaddingLeft(4)
+	cursorStyle := lipgloss.NewStyle().PaddingLeft(4).Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Background(components.Primary)
+
+	// Show parsed event
+	b.WriteString(m.renderNLPEventBox())
+	b.WriteString("\n")
+
+	b.WriteString(titleStyle.Render("Select Calendar"))
+	b.WriteString("\n\n")
+
+	for i, cal := range m.calendars {
+		if i == m.nlpCalendarIdx {
+			b.WriteString(cursorStyle.Render("> " + cal.Title))
+		} else {
+			b.WriteString(itemStyle.Render("  " + cal.Title))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(hintStyle.Render("↑/k up • ↓/j down • enter select • esc cancel"))
+
+	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
+}
+
+func (m *CalendarApp) renderNLPReminder() string {
+	var b strings.Builder
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(components.Primary)
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#AAAAAA"))
+	itemStyle := lipgloss.NewStyle().PaddingLeft(4)
+	cursorStyle := lipgloss.NewStyle().PaddingLeft(4).Bold(true).Foreground(lipgloss.Color("#FFFFFF")).Background(components.Primary)
+
+	// Show parsed event
+	b.WriteString(m.renderNLPEventBox())
+	b.WriteString("\n")
+
+	b.WriteString(titleStyle.Render("Reminder"))
+	b.WriteString("\n\n")
+
+	reminderOptions := []string{
+		"No reminder",
+		"5 minutes before",
+		"10 minutes before",
+		"15 minutes before",
+		"30 minutes before",
+		"1 hour before",
+	}
+
+	for i, opt := range reminderOptions {
+		if i == m.nlpReminderIdx {
+			b.WriteString(cursorStyle.Render("> " + opt))
+		} else {
+			b.WriteString(itemStyle.Render("  " + opt))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(hintStyle.Render("↑/k up • ↓/j down • enter select • esc cancel"))
+
+	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
+}
+
+func (m *CalendarApp) renderNLPConfirm() string {
+	var b strings.Builder
+
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(components.Primary)
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#AAAAAA"))
+
+	b.WriteString(titleStyle.Render("Confirm Event"))
+	b.WriteString("\n\n")
+
+	// Event details box
+	b.WriteString("  ┌────────────────────────────────────────────────┐\n")
+	b.WriteString(fmt.Sprintf("  │  Title:    %-35s│\n", truncateStr(m.nlpParsed.Title, 35)))
+	b.WriteString(fmt.Sprintf("  │  Date:     %-35s│\n", m.nlpStartTime.Format("Monday, Jan 2, 2006")))
+	b.WriteString(fmt.Sprintf("  │  Time:     %-35s│\n", fmt.Sprintf("%s - %s", m.nlpStartTime.Format("3:04 PM"), m.nlpEndTime.Format("3:04 PM"))))
+	if m.nlpParsed.Location != "" {
+		b.WriteString(fmt.Sprintf("  │  Location: %-35s│\n", truncateStr(m.nlpParsed.Location, 35)))
+	}
+	calName := "Default"
+	if len(m.calendars) > 0 && m.nlpCalendarIdx < len(m.calendars) {
+		calName = m.calendars[m.nlpCalendarIdx].Title
+	}
+	b.WriteString(fmt.Sprintf("  │  Calendar: %-35s│\n", truncateStr(calName, 35)))
+	reminderStr := "None"
+	if mins := m.getNLPReminderMinutes(); mins > 0 {
+		if mins == 60 {
+			reminderStr = "1 hour before"
+		} else {
+			reminderStr = fmt.Sprintf("%d minutes before", mins)
+		}
+	}
+	b.WriteString(fmt.Sprintf("  │  Reminder: %-35s│\n", reminderStr))
+	b.WriteString("  └────────────────────────────────────────────────┘\n")
+
+	b.WriteString("\n")
+	b.WriteString(hintStyle.Render("enter create • esc cancel"))
+
+	return lipgloss.NewStyle().Padding(1, 2).Render(b.String())
+}
+
+func (m *CalendarApp) renderNLPEventBox() string {
+	var b strings.Builder
+
+	b.WriteString("  ┌─ Parsed Event ─────────────────────────────────┐\n")
+	b.WriteString(fmt.Sprintf("  │  Title:    %-37s│\n", truncateStr(m.nlpParsed.Title, 37)))
+	b.WriteString(fmt.Sprintf("  │  Date:     %-37s│\n", m.nlpStartTime.Format("Monday, Jan 2, 2006")))
+	b.WriteString(fmt.Sprintf("  │  Time:     %-37s│\n", fmt.Sprintf("%s - %s", m.nlpStartTime.Format("3:04 PM"), m.nlpEndTime.Format("3:04 PM"))))
+	if m.nlpParsed.Location != "" {
+		b.WriteString(fmt.Sprintf("  │  Location: %-37s│\n", truncateStr(m.nlpParsed.Location, 37)))
+	}
+	b.WriteString("  └────────────────────────────────────────────────┘")
+
+	return b.String()
+}
+

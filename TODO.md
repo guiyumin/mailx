@@ -31,6 +31,7 @@
 - [x] `--debug` flag to show raw AI response
 - [x] Interactive calendar selection (prompts user to pick from list)
 - [x] `maily c list` to list available calendars
+- [x] TUI quick-add with NLP (`a` key) and form add (`A` key)
 
 ### Core Features
 - [x] Local email cache for fast startup
@@ -66,7 +67,6 @@ For when the project has more traction. Unverified OAuth apps show scary warning
 - [ ] Add `maily login gmail --oauth` option
 
 ### Calendar Features (Future)
-- [ ] TUI quick-add with NLP (hybrid: quick add vs form)
 - [ ] Extract events from email (`e` key)
 - [ ] Today view (split panel: emails + events)
 
