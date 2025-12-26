@@ -30,13 +30,14 @@
   - Only reloads when no lock exists (ensures coherent snapshot)
 
 ### 2. maily daemon
-- Runs in background
-- Syncs every 30 minutes
+- Starts automatically when you open maily
+- Runs in background, syncs every 30 minutes
 - Fetches latest 14 days from server
 - Saves to local cache
 - Deletes cache files older than 14 days
-- User starts with: `maily daemon start`
-- User stops with: `maily daemon stop`
+- Check status: `maily daemon status`
+- Stop: `maily daemon stop`
+- Debug mode: `maily daemon start` (runs in foreground with visible output)
 
 ### 3. Manual refresh (`R` in TUI)
 - Fetches emails from IMAP server directly

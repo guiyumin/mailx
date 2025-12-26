@@ -49,10 +49,7 @@ maily login imap       # For other IMAP providers
 maily
 ```
 
-3. (Optional) Start background sync daemon:
-```bash
-maily daemon start
-```
+The background sync daemon starts automatically when you open maily.
 
 ## Key Bindings
 
@@ -89,8 +86,9 @@ maily login yahoo      # Add Yahoo account
 maily login imap       # Add other IMAP account
 maily logout           # Remove account
 maily accounts         # List accounts
-maily daemon start     # Start background sync
-maily daemon stop      # Stop background sync
+maily daemon status    # Check daemon status and logs
+maily daemon stop      # Stop the daemon
+maily daemon start     # Run daemon in foreground (for debugging)
 maily sync             # Manual full sync
 maily update           # Update to latest version
 ```

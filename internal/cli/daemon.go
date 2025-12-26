@@ -7,10 +7,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"maily/internal/auth"
 	"maily/internal/cache"
@@ -19,48 +21,43 @@ import (
 
 const (
 	syncInterval = 30 * time.Minute
+	maxLogSize   = 10 * 1024 * 1024 // 10MB
 )
 
 var daemonCmd = &cobra.Command{
 	Use:   "daemon",
-	Short: "Manage the background sync daemon",
-	Long:  "Start or stop the background sync daemon that keeps your email cache up to date",
+	Short: "Background sync daemon",
+	Long:  "The daemon syncs your email in the background.",
 }
 
 var daemonStartCmd = &cobra.Command{
 	Use:   "start",
-	Short: "Start the background sync daemon",
+	Short: "Run the daemon in foreground (for debugging)",
 	Run: func(cmd *cobra.Command, args []string) {
-		foreground, _ := cmd.Flags().GetBool("foreground")
-		if foreground {
-			runDaemon()
-		} else {
-			startDaemonBackground()
-		}
-	},
-}
-
-var daemonStopCmd = &cobra.Command{
-	Use:   "stop",
-	Short: "Stop the background sync daemon",
-	Run: func(cmd *cobra.Command, args []string) {
-		stopDaemon()
+		runDaemon()
 	},
 }
 
 var daemonStatusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Check daemon status",
+	Short: "Check daemon status and recent logs",
 	Run: func(cmd *cobra.Command, args []string) {
 		checkDaemonStatus()
 	},
 }
 
+var daemonStopCmd = &cobra.Command{
+	Use:   "stop",
+	Short: "Stop the daemon",
+	Run: func(cmd *cobra.Command, args []string) {
+		stopDaemon()
+	},
+}
+
 func init() {
-	daemonStartCmd.Flags().BoolP("foreground", "f", false, "Run in foreground (for debugging)")
 	daemonCmd.AddCommand(daemonStartCmd)
-	daemonCmd.AddCommand(daemonStopCmd)
 	daemonCmd.AddCommand(daemonStatusCmd)
+	daemonCmd.AddCommand(daemonStopCmd)
 	rootCmd.AddCommand(daemonCmd)
 }
 
@@ -69,113 +66,165 @@ func getDaemonPidFile() string {
 	return filepath.Join(homeDir, ".config", "maily", "daemon.pid")
 }
 
-func startDaemonBackground() {
-	// Check if already running
+func getDaemonLogFile() string {
+	homeDir, _ := os.UserHomeDir()
+	return filepath.Join(homeDir, ".config", "maily", "daemon.log")
+}
+
+// isDaemonRunning checks if the daemon is currently running
+func isDaemonRunning() bool {
 	pidFile := getDaemonPidFile()
-	if data, err := os.ReadFile(pidFile); err == nil {
-		pid, _ := strconv.Atoi(string(data))
-		if pid > 0 {
-			if process, err := os.FindProcess(pid); err == nil {
-				if err := process.Signal(syscall.Signal(0)); err == nil {
-					fmt.Println("Daemon is already running (PID:", pid, ")")
-					return
-				}
-			}
-		}
+	data, err := os.ReadFile(pidFile)
+	if err != nil {
+		return false
 	}
 
-	// Start daemon in background
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return false
+	}
+
+	// Check if process exists and is maily
+	if !isMailyProcess(pid) {
+		os.Remove(pidFile)
+		return false
+	}
+
+	return true
+}
+
+// isMailyProcess checks if the given PID is a maily process
+func isMailyProcess(pid int) bool {
+	cmd := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", "comm=")
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	comm := strings.TrimSpace(string(output))
+	return comm == "maily" || strings.HasSuffix(comm, "/maily")
+}
+
+// startDaemonBackground starts the daemon in the background
+func startDaemonBackground() {
+	if isDaemonRunning() {
+		return // Already running
+	}
+
 	executable, err := os.Executable()
 	if err != nil {
-		fmt.Println("Error getting executable path:", err)
-		os.Exit(1)
+		return
 	}
 
-	cmd := exec.Command(executable, "daemon", "start", "--foreground")
+	cmd := exec.Command(executable, "daemon", "start")
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	cmd.Stdin = nil
-
-	// Detach from parent process
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setsid: true,
-	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
 	if err := cmd.Start(); err != nil {
-		fmt.Println("Error starting daemon:", err)
-		os.Exit(1)
+		return
 	}
-
-	// Write PID file
-	if err := os.MkdirAll(filepath.Dir(pidFile), 0700); err == nil {
-		os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)), 0600)
-	}
-
-	fmt.Println("Daemon started (PID:", cmd.Process.Pid, ")")
 }
 
+// stopDaemon stops the daemon if running
 func stopDaemon() {
 	pidFile := getDaemonPidFile()
 	data, err := os.ReadFile(pidFile)
 	if err != nil {
-		fmt.Println("Daemon is not running")
+		fmt.Println("Daemon is not running.")
 		return
 	}
 
-	pid, err := strconv.Atoi(string(data))
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil || pid <= 0 {
-		fmt.Println("Invalid PID file")
 		os.Remove(pidFile)
+		fmt.Println("Daemon is not running.")
+		return
+	}
+
+	if !isMailyProcess(pid) {
+		os.Remove(pidFile)
+		fmt.Println("Daemon is not running.")
 		return
 	}
 
 	process, err := os.FindProcess(pid)
 	if err != nil {
-		fmt.Println("Daemon process not found")
 		os.Remove(pidFile)
+		fmt.Println("Daemon is not running.")
 		return
 	}
 
 	if err := process.Signal(syscall.SIGTERM); err != nil {
-		fmt.Println("Daemon is not running")
 		os.Remove(pidFile)
+		fmt.Println("Daemon is not running.")
 		return
 	}
 
+	// Wait briefly for graceful shutdown
+	time.Sleep(500 * time.Millisecond)
 	os.Remove(pidFile)
-	fmt.Println("Daemon stopped")
+	fmt.Println("Daemon stopped (PID:", pid, ")")
 }
 
 func checkDaemonStatus() {
-	pidFile := getDaemonPidFile()
-	data, err := os.ReadFile(pidFile)
+	logFile := getDaemonLogFile()
+
+	if isDaemonRunning() {
+		data, _ := os.ReadFile(getDaemonPidFile())
+		pid, _ := strconv.Atoi(strings.TrimSpace(string(data)))
+		fmt.Println("Daemon is running (PID:", pid, ")")
+	} else {
+		fmt.Println("Daemon is not running")
+	}
+
+	fmt.Println("Log file:", logFile)
+
+	// Show recent logs
+	if logData, err := os.ReadFile(logFile); err == nil && len(logData) > 0 {
+		lines := strings.Split(string(logData), "\n")
+		start := len(lines) - 10
+		if start < 0 {
+			start = 0
+		}
+		if len(lines[start:]) > 0 {
+			fmt.Println()
+			fmt.Println("Recent logs:")
+			for _, line := range lines[start:] {
+				if line != "" {
+					fmt.Println(" ", line)
+				}
+			}
+		}
+	}
+}
+
+func setupLogging(logFile string) {
+	// Rotate if log exceeds max size
+	if info, err := os.Stat(logFile); err == nil && info.Size() > maxLogSize {
+		os.Rename(logFile, logFile+".old")
+	}
+
+	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		fmt.Println("Daemon is not running")
 		return
 	}
 
-	pid, err := strconv.Atoi(string(data))
-	if err != nil || pid <= 0 {
-		fmt.Println("Daemon is not running (invalid PID file)")
-		return
-	}
-
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		fmt.Println("Daemon is not running")
-		return
-	}
-
-	if err := process.Signal(syscall.Signal(0)); err != nil {
-		fmt.Println("Daemon is not running")
-		os.Remove(pidFile)
-		return
-	}
-
-	fmt.Println("Daemon is running (PID:", pid, ")")
+	os.Stdout = f
+	os.Stderr = f
 }
 
 func runDaemon() {
+	isTerminal := term.IsTerminal(int(os.Stdin.Fd()))
+
+	// Redirect to log file when not in terminal
+	if !isTerminal {
+		logFile := getDaemonLogFile()
+		if err := os.MkdirAll(filepath.Dir(logFile), 0700); err == nil {
+			setupLogging(logFile)
+		}
+	}
+
 	// Write PID file
 	pidFile := getDaemonPidFile()
 	if err := os.MkdirAll(filepath.Dir(pidFile), 0700); err == nil {
@@ -187,19 +236,28 @@ func runDaemon() {
 	store, err := auth.LoadAccountStore()
 	if err != nil {
 		fmt.Println("Error loading accounts:", err)
-		os.Exit(1)
+		if isTerminal {
+			os.Exit(1)
+		}
+		return
 	}
 
 	if len(store.Accounts) == 0 {
-		fmt.Println("No accounts configured")
-		os.Exit(1)
+		fmt.Println("No accounts configured. Run 'maily login gmail' first.")
+		if isTerminal {
+			os.Exit(1)
+		}
+		return
 	}
 
 	// Create cache
 	c, err := cache.New()
 	if err != nil {
 		fmt.Println("Error creating cache:", err)
-		os.Exit(1)
+		if isTerminal {
+			os.Exit(1)
+		}
+		return
 	}
 
 	// Handle shutdown signals
@@ -209,7 +267,6 @@ func runDaemon() {
 	// Initial sync
 	syncAllAccounts(store, c)
 
-	// Ticker for periodic sync
 	ticker := time.NewTicker(syncInterval)
 	defer ticker.Stop()
 
@@ -231,7 +288,6 @@ func syncAllAccounts(store *auth.AccountStore, c *cache.Cache) {
 		account := &store.Accounts[i]
 		syncer := sync.NewSyncer(c, account)
 
-		// Sync INBOX
 		if err := syncer.FullSync("INBOX"); err != nil {
 			fmt.Printf("Error syncing %s: %v\n", account.Credentials.Email, err)
 		} else {

@@ -49,6 +49,9 @@ func runTUI() {
 		os.Exit(1)
 	}
 
+	// Auto-start daemon if not running
+	startDaemonBackground()
+
 	p := tea.NewProgram(
 		ui.NewApp(store),
 		tea.WithAltScreen(),

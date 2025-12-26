@@ -8,8 +8,11 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	"maily/internal/auth"
 )
+
+var logoutYes bool
 
 var logoutCmd = &cobra.Command{
 	Use:   "logout [email]",
@@ -25,6 +28,22 @@ var logoutCmd = &cobra.Command{
 	},
 }
 
+func init() {
+	logoutCmd.Flags().BoolVarP(&logoutYes, "yes", "y", false, "Skip confirmation prompt")
+}
+
+func confirmLogout(email string) bool {
+	// Skip prompt if --yes flag or not a terminal (CI/scripts)
+	if logoutYes || !term.IsTerminal(int(os.Stdin.Fd())) {
+		return true
+	}
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("Remove account %s? [y/N]: ", email)
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(strings.ToLower(input))
+	return input == "y" || input == "yes"
+}
+
 func handleLogoutAccount(email string) {
 	store, err := auth.LoadAccountStore()
 	if err != nil {
@@ -32,11 +51,28 @@ func handleLogoutAccount(email string) {
 		os.Exit(1)
 	}
 
+	// Check if account exists
+	found := false
+	for _, acc := range store.Accounts {
+		if acc.Credentials.Email == email {
+			found = true
+			break
+		}
+	}
+	if !found {
+		fmt.Printf("Account not found: %s\n", email)
+		return
+	}
+
+	// Confirm before removing
+	if !confirmLogout(email) {
+		fmt.Println("Cancelled.")
+		return
+	}
+
 	if store.RemoveAccount(email) {
 		store.Save()
 		fmt.Printf("Removed account %s\n", email)
-	} else {
-		fmt.Printf("Account not found: %s\n", email)
 	}
 }
 
@@ -52,39 +88,44 @@ func handleLogout() {
 		return
 	}
 
+	var email string
+
 	if len(store.Accounts) == 1 {
-		email := store.Accounts[0].Credentials.Email
-		store.RemoveAccount(email)
-		store.Save()
-		fmt.Printf("Removed account %s\n", email)
-		return
+		email = store.Accounts[0].Credentials.Email
+	} else {
+		fmt.Println()
+		fmt.Println("  Which account to remove?")
+		fmt.Println()
+		for i, acc := range store.Accounts {
+			fmt.Printf("  %d. %s\n", i+1, acc.Credentials.Email)
+		}
+		fmt.Println()
+
+		reader := bufio.NewReader(os.Stdin)
+		fmt.Print("  Enter number (or 0 to cancel): ")
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(input)
+
+		num, err := strconv.Atoi(input)
+		if err != nil || num < 0 || num > len(store.Accounts) {
+			fmt.Println("Cancelled.")
+			return
+		}
+
+		if num == 0 {
+			fmt.Println("Cancelled.")
+			return
+		}
+
+		email = store.Accounts[num-1].Credentials.Email
 	}
 
-	fmt.Println()
-	fmt.Println("  Which account to remove?")
-	fmt.Println()
-	for i, acc := range store.Accounts {
-		fmt.Printf("  %d. %s\n", i+1, acc.Credentials.Email)
-	}
-	fmt.Println()
-
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Print("  Enter number (or 0 to cancel): ")
-	input, _ := reader.ReadString('\n')
-	input = strings.TrimSpace(input)
-
-	num, err := strconv.Atoi(input)
-	if err != nil || num < 0 || num > len(store.Accounts) {
+	// Confirm before removing
+	if !confirmLogout(email) {
 		fmt.Println("Cancelled.")
 		return
 	}
 
-	if num == 0 {
-		fmt.Println("Cancelled.")
-		return
-	}
-
-	email := store.Accounts[num-1].Credentials.Email
 	store.RemoveAccount(email)
 	store.Save()
 	fmt.Printf("Removed account %s\n", email)

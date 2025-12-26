@@ -17,10 +17,17 @@ var updateCmd = &cobra.Command{
 	Use:   "update",
 	Short: "Update maily to the latest version",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Check if daemon is running
-		daemonWasRunning := isDaemonRunning()
+		// Check if installed via Homebrew
+		if executable, err := os.Executable(); err == nil {
+			if strings.Contains(executable, "/Cellar/") {
+				fmt.Println("Maily is installed via Homebrew.")
+				fmt.Println("Please run 'brew upgrade maily' instead.")
+				return nil
+			}
+		}
 
-		// Stop daemon before update
+		// Check if daemon was running and stop it
+		daemonWasRunning := isDaemonRunning()
 		if daemonWasRunning {
 			fmt.Println("Stopping daemon before update...")
 			stopDaemon()
@@ -44,31 +51,6 @@ var updateCmd = &cobra.Command{
 
 		return nil
 	},
-}
-
-// isDaemonRunning checks if the daemon process is currently running
-func isDaemonRunning() bool {
-	pidFile := getDaemonPidFile()
-	data, err := os.ReadFile(pidFile)
-	if err != nil {
-		return false
-	}
-
-	pid, err := strconv.Atoi(string(data))
-	if err != nil || pid <= 0 {
-		return false
-	}
-
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-
-	if err := process.Signal(syscall.Signal(0)); err != nil {
-		return false
-	}
-
-	return true
 }
 
 // stopRunningSyncs stops any running sync operations gracefully
