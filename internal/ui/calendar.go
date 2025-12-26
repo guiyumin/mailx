@@ -1010,8 +1010,8 @@ func (m *CalendarApp) renderHelpBar() string {
 
 	// Row 2: Actions
 	row2 := []string{
-		keyStyle.Render("a") + " easy add",
-		keyStyle.Render("A") + " add (event form)",
+		keyStyle.Render("a") + " new event (guided, recommended)",
+		keyStyle.Render("A") + " new event (form)",
 		keyStyle.Render("e") + " edit",
 		keyStyle.Render("x") + " delete",
 		keyStyle.Render("q") + " quit",
