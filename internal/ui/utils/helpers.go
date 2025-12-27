@@ -5,15 +5,15 @@ import (
 	"time"
 )
 
-// Helper functions
+// TruncateStr truncates a string to maxLen characters using unicode ellipsis
 func TruncateStr(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	if maxLen <= 3 {
+	if maxLen <= 1 {
 		return s[:maxLen]
 	}
-	return s[:maxLen-3] + "..."
+	return s[:maxLen-1] + "…"
 }
 
 func ExtractNameFromEmail(from string) string {

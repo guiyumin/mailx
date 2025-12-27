@@ -16,6 +16,7 @@ import (
 	"maily/internal/calendar"
 	"maily/internal/mail"
 	"maily/internal/ui/components"
+	"maily/internal/ui/utils"
 )
 
 // Panel focus
@@ -948,10 +949,10 @@ func (m *TodayApp) renderDeleteConfirm() string {
 
 	if m.activePanel == emailPanel && m.emailCursor < len(m.emails) {
 		email := m.emails[m.emailCursor]
-		b.WriteString(fmt.Sprintf("Delete email: \"%s\"?\n\n", truncateStr(email.Subject, 40)))
+		b.WriteString(fmt.Sprintf("Delete email: \"%s\"?\n\n", utils.TruncateStr(email.Subject, 40)))
 	} else if m.activePanel == eventPanel && m.eventCursor < len(m.events) {
 		event := m.events[m.eventCursor]
-		b.WriteString(fmt.Sprintf("Delete event: \"%s\"?\n\n", truncateStr(event.Title, 40)))
+		b.WriteString(fmt.Sprintf("Delete event: \"%s\"?\n\n", utils.TruncateStr(event.Title, 40)))
 	}
 
 	helpStyle := lipgloss.NewStyle().Foreground(components.Muted)
