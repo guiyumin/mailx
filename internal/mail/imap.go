@@ -603,9 +603,8 @@ func (c *IMAPClient) MoveToTrash(uids []imap.UID) error {
 
 func (c *IMAPClient) findTrashFolder() (string, error) {
 	// Try Gmail-specific trash folder first
-	gmailTrash := "[Gmail]/Trash"
-	if c.mailboxExists(gmailTrash) {
-		return gmailTrash, nil
+	if c.mailboxExists(GmailTrash) {
+		return GmailTrash, nil
 	}
 
 	// Try to find folder with \Trash special-use attribute
@@ -645,9 +644,8 @@ func (c *IMAPClient) mailboxExists(name string) bool {
 
 func (c *IMAPClient) findArchiveFolder() (string, error) {
 	// Try Gmail-specific archive folder first
-	gmailArchive := "[Gmail]/All Mail"
-	if c.mailboxExists(gmailArchive) {
-		return gmailArchive, nil
+	if c.mailboxExists(GmailAllMail) {
+		return GmailAllMail, nil
 	}
 
 	// Try to find folder with \Archive special-use attribute
@@ -681,9 +679,8 @@ func (c *IMAPClient) findArchiveFolder() (string, error) {
 
 func (c *IMAPClient) findDraftsFolder() (string, error) {
 	// Try Gmail-specific drafts folder first
-	gmailDrafts := "[Gmail]/Drafts"
-	if c.mailboxExists(gmailDrafts) {
-		return gmailDrafts, nil
+	if c.mailboxExists(GmailDrafts) {
+		return GmailDrafts, nil
 	}
 
 	// Try to find folder with \Drafts special-use attribute

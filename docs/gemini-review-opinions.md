@@ -105,3 +105,46 @@ Refactor the search functions to reuse a shared connection/login helper method t
 
 ## Conclusion
 The project currently works for the two targeted providers but will face scaling challenges. By adopting a configuration-driven approach and abstracting provider quirks behind interfaces, `maily` can easily support Outlook, iCloud, and custom IMAP servers in the future.
+
+## Calendar Module Review
+
+I have also reviewed the `internal/calendar`, `internal/ui/calendar.go`, and `internal/cli/calendar.go` files to assess the new Calendar feature.
+
+### Key Findings
+
+#### 1. Strong MacOS Coupling
+**File:** `internal/calendar/eventkit_darwin.m`
+
+The implementation relies heavily on CGO and the macOS EventKit framework. This makes the calendar feature non-portable to Linux or Windows.
+
+**Issue:** While a `stub_other.go` exists, it simply errors out on other platforms. There is no architectural provision (like a driver model) for other backends (e.g., Google Calendar API, CalDAV, or a local file-based database) that could work cross-platform.
+
+#### 2. Monolithic UI Model
+**File:** `internal/ui/calendar.go`
+
+The `CalendarApp` struct manages over 10 different view states (`viewCalendar`, `viewAddEvent`, `viewNLPInput`, etc.) and all their associated data in a single massive struct.
+
+**Issue:** This "God Object" anti-pattern makes the UI code hard to maintain and test. State transitions (e.g., from NLP input to Confirmation to Calendar) are complex and prone to bugs. The code mixes UI rendering logic, form state management, and business logic.
+
+#### 3. CLI Coupled to AI Tools
+**File:** `internal/cli/calendar.go`
+
+The CLI command explicitly checks for specific installed binaries (`claude`, `codex`, `gemini`) to enable natural language processing.
+
+**Issue:** This logic belongs in the `internal/ai` package, not the CLI layer. Adding a new AI provider currently requires changing the CLI code. The CLI should be agnostic to *which* tool is fulfilling the AI request.
+
+### Recommendations
+
+#### 1. Modularize UI Components
+Refactor `CalendarApp` into smaller, composable Bubble Tea models:
+- `CalendarModel`: Displays the grid and events.
+- `FormModel`: Handles input fields (reusable for Add/Edit).
+- `NLPModel`: Handles the AI prompt and parsing flow.
+
+The main `CalendarApp` should only orchestrate switching between these sub-models and passing messages.
+
+#### 2. Abstract Calendar Backend
+Move the EventKit implementation to a sub-package (e.g., `internal/calendar/eventkit`). The root `internal/calendar` should define the interface and a `NewClient` factory that can choose between backends (EventKit, Google Calendar API, etc.) based on compile tags, configuration, or environment variables.
+
+#### 3. Improve AI Abstraction
+Move the AI tool detection logic entirely into `internal/ai`. The CLI should just ask `ai.Available()` and `ai.Parse(...)` without knowing details about the specific binary.

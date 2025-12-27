@@ -6,50 +6,51 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"maily/internal/mail"
 )
 
 // Label display names for system folders (Gmail and other providers)
 var labelDisplayNames = map[string]string{
 	// Standard
-	"INBOX": "Inbox",
+	mail.INBOX: "Inbox",
 	// Gmail
-	"[Gmail]/Starred":   "Starred",
-	"[Gmail]/Sent Mail": "Sent",
-	"[Gmail]/Drafts":    "Drafts",
-	"[Gmail]/Spam":      "Spam",
-	"[Gmail]/Trash":     "Trash",
-	"[Gmail]/All Mail":  "All Mail",
+	mail.GmailStarred: "Starred",
+	mail.GmailSent:    "Sent",
+	mail.GmailDrafts:  "Drafts",
+	mail.GmailSpam:    "Spam",
+	mail.GmailTrash:   "Trash",
+	mail.GmailAllMail: "All Mail",
 	// Yahoo / Standard IMAP
-	"Sent":      "Sent",
-	"Draft":     "Drafts",
-	"Drafts":    "Drafts",
-	"Trash":     "Trash",
-	"Spam":      "Spam",
-	"Bulk Mail": "Spam",
-	"Archive":   "Archive",
-	"Junk":      "Spam",
+	mail.Sent:     "Sent",
+	mail.Draft:    "Drafts",
+	mail.Drafts:   "Drafts",
+	mail.Trash:    "Trash",
+	mail.Spam:     "Spam",
+	mail.BulkMail: "Spam",
+	mail.Archive:  "Archive",
+	mail.Junk:     "Spam",
 }
 
 // System folder sort order (lower = higher priority)
 var folderSortOrder = map[string]int{
 	// Standard
-	"INBOX": 0,
+	mail.INBOX: 0,
 	// Gmail
-	"[Gmail]/Starred":   1,
-	"[Gmail]/Sent Mail": 2,
-	"[Gmail]/Drafts":    3,
-	"[Gmail]/All Mail":  4,
-	"[Gmail]/Spam":      5,
-	"[Gmail]/Trash":     6,
+	mail.GmailStarred: 1,
+	mail.GmailSent:    2,
+	mail.GmailDrafts:  3,
+	mail.GmailAllMail: 4,
+	mail.GmailSpam:    5,
+	mail.GmailTrash:   6,
 	// Yahoo / Standard IMAP
-	"Sent":      2,
-	"Draft":     3,
-	"Drafts":    3,
-	"Archive":   4,
-	"Spam":      5,
-	"Bulk Mail": 5,
-	"Junk":      5,
-	"Trash":     6,
+	mail.Sent:     2,
+	mail.Draft:    3,
+	mail.Drafts:   3,
+	mail.Archive:  4,
+	mail.Spam:     5,
+	mail.BulkMail: 5,
+	mail.Junk:     5,
+	mail.Trash:    6,
 }
 
 // LabelPicker is a full-screen view for selecting a label/folder
@@ -72,9 +73,9 @@ type pickerItem struct {
 
 func NewLabelPicker() LabelPicker {
 	return LabelPicker{
-		folders:  []string{"INBOX"},
+		folders:  []string{mail.INBOX},
 		labels:   []string{},
-		selected: "INBOX",
+		selected: mail.INBOX,
 		width:    80,
 		height:   24,
 	}
@@ -82,15 +83,15 @@ func NewLabelPicker() LabelPicker {
 
 // Standard IMAP folder names that should be treated as system folders
 var systemFolders = map[string]bool{
-	"INBOX":     true,
-	"Sent":      true,
-	"Draft":     true,
-	"Drafts":    true,
-	"Trash":     true,
-	"Spam":      true,
-	"Bulk Mail": true,
-	"Archive":   true,
-	"Junk":      true,
+	mail.INBOX:    true,
+	mail.Sent:     true,
+	mail.Draft:    true,
+	mail.Drafts:   true,
+	mail.Trash:    true,
+	mail.Spam:     true,
+	mail.BulkMail: true,
+	mail.Archive:  true,
+	mail.Junk:     true,
 }
 
 func (p *LabelPicker) SetLabels(labels []string) {
@@ -103,7 +104,7 @@ func (p *LabelPicker) SetLabels(labels []string) {
 			continue
 		}
 		// Check if it's a system folder (Gmail or standard IMAP)
-		if strings.HasPrefix(label, "[Gmail]/") || systemFolders[label] {
+		if strings.HasPrefix(label, mail.GmailFolderPrefix) || systemFolders[label] {
 			folders = append(folders, label)
 		} else {
 			customLabels = append(customLabels, label)
@@ -338,7 +339,7 @@ func (p LabelPicker) CursorLabel() string {
 	if p.cursor >= 0 && p.cursor < len(p.items) && !p.items[p.cursor].isHeader {
 		return p.items[p.cursor].label
 	}
-	return "INBOX"
+	return mail.INBOX
 }
 
 // SelectedLabel returns the currently selected label
@@ -352,8 +353,8 @@ func getDisplayName(label string) string {
 		return name
 	}
 	// For [Gmail]/Something not in our map, strip the prefix
-	if strings.HasPrefix(label, "[Gmail]/") {
-		return strings.TrimPrefix(label, "[Gmail]/")
+	if after, found := strings.CutPrefix(label, mail.GmailFolderPrefix); found {
+		return after
 	}
 	return label
 }

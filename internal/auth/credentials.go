@@ -14,6 +14,30 @@ import (
 
 const accountsFileName = "accounts.yml"
 
+// Provider identifiers
+const (
+	ProviderGmail = "gmail"
+	ProviderYahoo = "yahoo"
+)
+
+// Gmail IMAP/SMTP hosts
+const (
+	GmailIMAPHost = "imap.gmail.com"
+	GmailSMTPHost = "smtp.gmail.com"
+)
+
+// Yahoo IMAP/SMTP hosts
+const (
+	YahooIMAPHost = "imap.mail.yahoo.com"
+	YahooSMTPHost = "smtp.mail.yahoo.com"
+)
+
+// Standard ports
+const (
+	IMAPPort = 993
+	SMTPPort = 587
+)
+
 type Credentials struct {
 	Email    string `yaml:"email"`
 	Password string `yaml:"password"`
@@ -21,6 +45,7 @@ type Credentials struct {
 	IMAPPort int    `yaml:"imap_port"`
 	SMTPHost string `yaml:"smtp_host"`
 	SMTPPort int    `yaml:"smtp_port"`
+	Provider string `yaml:"provider"`
 }
 
 type Account struct {
@@ -37,10 +62,11 @@ func GmailCredentials(email, password string) Credentials {
 	return Credentials{
 		Email:    email,
 		Password: password,
-		IMAPHost: "imap.gmail.com",
-		IMAPPort: 993,
-		SMTPHost: "smtp.gmail.com",
-		SMTPPort: 587,
+		IMAPHost: GmailIMAPHost,
+		IMAPPort: IMAPPort,
+		SMTPHost: GmailSMTPHost,
+		SMTPPort: SMTPPort,
+		Provider: ProviderGmail,
 	}
 }
 
@@ -48,10 +74,11 @@ func YahooCredentials(email, password string) Credentials {
 	return Credentials{
 		Email:    email,
 		Password: password,
-		IMAPHost: "imap.mail.yahoo.com",
-		IMAPPort: 993,
-		SMTPHost: "smtp.mail.yahoo.com",
-		SMTPPort: 587,
+		IMAPHost: YahooIMAPHost,
+		IMAPPort: IMAPPort,
+		SMTPHost: YahooSMTPHost,
+		SMTPPort: SMTPPort,
+		Provider: ProviderYahoo,
 	}
 }
 
