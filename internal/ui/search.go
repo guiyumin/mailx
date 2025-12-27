@@ -3,7 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
-	"time"
+	"maily/internal/ui/utils"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -639,9 +639,9 @@ func (a SearchApp) renderEmailLine(email mail.Email, cursor bool, selected bool)
 		maxWidth = 80
 	}
 
-	from := truncateStr(extractNameFromEmail(email.From), 20)
-	subject := truncateStr(email.Subject, maxWidth-35)
-	date := formatEmailDate(email.Date)
+	from := utils.TruncateStr(utils.ExtractNameFromEmail(email.From), 20)
+	subject := utils.TruncateStr(email.Subject, maxWidth-35)
+	date := utils.FormatEmailDate(email.Date)
 
 	// Selection indicator
 	var checkbox string
@@ -783,31 +783,3 @@ func (a SearchApp) renderStatusBar() string {
 	)
 }
 
-// Helper functions
-func truncateStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
-}
-
-func extractNameFromEmail(from string) string {
-	if idx := strings.Index(from, "<"); idx > 0 {
-		return strings.TrimSpace(from[:idx])
-	}
-	return from
-}
-
-func formatEmailDate(t time.Time) string {
-	now := time.Now()
-	if t.Year() == now.Year() && t.YearDay() == now.YearDay() {
-		return t.Format("15:04")
-	}
-	if t.Year() == now.Year() {
-		return t.Format("Jan 02")
-	}
-	return t.Format("02/01/06")
-}
