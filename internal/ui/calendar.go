@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"runtime"
 	"strings"
 	"time"
 
@@ -22,6 +21,7 @@ const (
 	viewAddEvent
 	viewEditEvent
 	viewDeleteConfirm
+	viewEventDetail    // Event detail view
 	viewNLPInput       // NLP quick-add: text input
 	viewNLPParsing     // NLP quick-add: waiting for AI
 	viewNLPCalendar    // NLP quick-add: select calendar
@@ -72,6 +72,9 @@ type CalendarApp struct {
 
 	// Delete confirmation
 	deleteButtonIdx int // 0=Delete, 1=Cancel
+
+	// Event detail view
+	detailButtonIdx int // 0=Edit, 1=Delete, 2=Close
 }
 
 type eventForm struct {
@@ -225,6 +228,8 @@ func (m *CalendarApp) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.view {
 	case viewCalendar:
 		return m.handleCalendarKeys(msg)
+	case viewEventDetail:
+		return m.handleEventDetailKeys(msg)
 	case viewDeleteConfirm:
 		return m.handleDeleteKeys(msg)
 	}
@@ -307,13 +312,19 @@ func (m *CalendarApp) handleCalendarKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.initInteractiveForm()
 			m.view = viewFormTitle
 		}
+	case "enter":
+		dayEvents := m.eventsForDate(m.selectedDate)
+		if len(dayEvents) > 0 && m.selectedIdx < len(dayEvents) {
+			m.detailButtonIdx = 0 // Default to Edit button
+			m.view = viewEventDetail
+		}
 	case "e":
 		dayEvents := m.eventsForDate(m.selectedDate)
 		if len(dayEvents) > 0 && m.selectedIdx < len(dayEvents) {
 			m.initEditForm(dayEvents[m.selectedIdx])
 			m.view = viewEditEvent
 		}
-	case "d", "x", "backspace":
+	case "d":
 		dayEvents := m.eventsForDate(m.selectedDate)
 		if len(dayEvents) > 0 && m.selectedIdx < len(dayEvents) {
 			m.deleteButtonIdx = 0 // Default to "Delete" button
@@ -348,12 +359,12 @@ func (m *CalendarApp) handleFormInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "tab":
-		m.formFocusIdx = (m.formFocusIdx + 1) % 6
+		m.formFocusIdx = (m.formFocusIdx + 1) % 8
 		m.updateFormFocus()
 		return m, nil
 
 	case "shift+tab":
-		m.formFocusIdx = (m.formFocusIdx + 5) % 6
+		m.formFocusIdx = (m.formFocusIdx + 7) % 8
 		m.updateFormFocus()
 		return m, nil
 
@@ -364,23 +375,20 @@ func (m *CalendarApp) handleFormInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		// Move to next field on enter, save on last field
-		if m.formFocusIdx < 4 {
-			m.formFocusIdx++
-			m.updateFormFocus()
+		if m.formFocusIdx == 6 { // Save button
+			return m, m.saveEvent()
+		}
+		if m.formFocusIdx == 7 { // Cancel button
+			m.view = viewCalendar
 			return m, nil
 		}
-		return m, m.saveEvent()
-
-	case "cmd+s", "ctrl+s":
-		// cmd+s for macOS, ctrl+s for Windows/Linux
-		if key == "cmd+s" && runtime.GOOS == "darwin" {
-			return m, m.saveEvent()
-		}
-		if key == "ctrl+s" && runtime.GOOS != "darwin" {
-			return m, m.saveEvent()
-		}
+		// Move to next field on enter
+		m.formFocusIdx++
+		m.updateFormFocus()
 		return m, nil
+
+	case "ctrl+s":
+		return m, m.saveEvent()
 
 	case "left":
 		if m.formFocusIdx == 5 && len(m.calendars) > 0 {
@@ -435,6 +443,58 @@ func (m *CalendarApp) handleDeleteKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	return m, nil
+}
+
+func (m *CalendarApp) handleEventDetailKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc", "q":
+		m.view = viewCalendar
+		return m, nil
+	case "left", "h":
+		if m.detailButtonIdx > 0 {
+			m.detailButtonIdx--
+		}
+		return m, nil
+	case "right", "l", "tab":
+		if m.detailButtonIdx < 2 {
+			m.detailButtonIdx++
+		}
+		return m, nil
+	case "enter":
+		dayEvents := m.eventsForDate(m.selectedDate)
+		switch m.detailButtonIdx {
+		case 0: // Edit
+			if len(dayEvents) > 0 && m.selectedIdx < len(dayEvents) {
+				m.initEditForm(dayEvents[m.selectedIdx])
+				m.view = viewEditEvent
+			}
+		case 1: // Delete
+			if len(dayEvents) > 0 && m.selectedIdx < len(dayEvents) {
+				m.deleteButtonIdx = 0
+				m.view = viewDeleteConfirm
+			}
+		case 2: // Close
+			m.view = viewCalendar
+		}
+		return m, nil
+	case "e":
+		// Direct shortcut to edit
+		dayEvents := m.eventsForDate(m.selectedDate)
+		if len(dayEvents) > 0 && m.selectedIdx < len(dayEvents) {
+			m.initEditForm(dayEvents[m.selectedIdx])
+			m.view = viewEditEvent
+		}
+		return m, nil
+	case "d":
+		// Direct shortcut to delete
+		dayEvents := m.eventsForDate(m.selectedDate)
+		if len(dayEvents) > 0 && m.selectedIdx < len(dayEvents) {
+			m.deleteButtonIdx = 0
+			m.view = viewDeleteConfirm
+		}
+		return m, nil
+	}
 	return m, nil
 }
 
@@ -707,6 +767,8 @@ func (m *CalendarApp) View() string {
 		return m.renderForm("Edit Event")
 	case viewDeleteConfirm:
 		return m.renderDeleteConfirm()
+	case viewEventDetail:
+		return m.renderEventDetail()
 	case viewNLPInput:
 		return m.renderNLPInput()
 	case viewNLPParsing:
@@ -910,77 +972,80 @@ func (m *CalendarApp) renderEvent(event calendar.Event, selected bool) string {
 func (m *CalendarApp) renderForm(title string) string {
 	var b strings.Builder
 
+	// Title header
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(components.Primary)
-
+		Foreground(components.Primary).
+		MarginBottom(1)
 	b.WriteString(titleStyle.Render(title))
 	b.WriteString("\n\n")
 
-	labelStyle := lipgloss.NewStyle().Width(12).Foreground(components.Muted)
-	focusedLabelStyle := lipgloss.NewStyle().Width(12).Foreground(components.Primary).Bold(true)
+	// Build form content for the box
+	var content strings.Builder
 
-	// Title
-	if m.formFocusIdx == 0 {
-		b.WriteString(focusedLabelStyle.Render("Title:"))
-	} else {
-		b.WriteString(labelStyle.Render("Title:"))
-	}
-	b.WriteString(m.form.title.View())
-	b.WriteString("\n")
-
+	labelStyle := lipgloss.NewStyle().Width(11).Foreground(components.Muted)
+	focusedLabelStyle := lipgloss.NewStyle().Width(11).Foreground(components.Primary).Bold(true)
 	hintStyle := lipgloss.NewStyle().Foreground(components.Muted)
 
-	// Date
-	if m.formFocusIdx == 1 {
-		b.WriteString(focusedLabelStyle.Render("Date:"))
+	// Title field
+	if m.formFocusIdx == 0 {
+		content.WriteString(focusedLabelStyle.Render("Title"))
 	} else {
-		b.WriteString(labelStyle.Render("Date:"))
+		content.WriteString(labelStyle.Render("Title"))
 	}
-	b.WriteString(m.form.date.View())
-	if m.formFocusIdx == 1 {
-		b.WriteString(hintStyle.Render("  (↑↓ scroll, ←→ switch)"))
-	}
-	b.WriteString("\n")
+	content.WriteString(m.form.title.View())
+	content.WriteString("\n")
 
-	// Start time (with hint for scrolling)
-	if m.formFocusIdx == 2 {
-		b.WriteString(focusedLabelStyle.Render("Start:"))
+	// Date field
+	if m.formFocusIdx == 1 {
+		content.WriteString(focusedLabelStyle.Render("Date"))
 	} else {
-		b.WriteString(labelStyle.Render("Start:"))
+		content.WriteString(labelStyle.Render("Date"))
 	}
-	b.WriteString(m.form.start.View())
+	content.WriteString(m.form.date.View())
+	if m.formFocusIdx == 1 {
+		content.WriteString(hintStyle.Render("  ↑↓←→"))
+	}
+	content.WriteString("\n")
+
+	// Start time
 	if m.formFocusIdx == 2 {
-		b.WriteString(hintStyle.Render("  (↑↓ scroll, ←→ switch)"))
+		content.WriteString(focusedLabelStyle.Render("Start"))
+	} else {
+		content.WriteString(labelStyle.Render("Start"))
 	}
-	b.WriteString("\n")
+	content.WriteString(m.form.start.View())
+	if m.formFocusIdx == 2 {
+		content.WriteString(hintStyle.Render("  ↑↓←→"))
+	}
+	content.WriteString("\n")
 
 	// End time
 	if m.formFocusIdx == 3 {
-		b.WriteString(focusedLabelStyle.Render("End:"))
+		content.WriteString(focusedLabelStyle.Render("End"))
 	} else {
-		b.WriteString(labelStyle.Render("End:"))
+		content.WriteString(labelStyle.Render("End"))
 	}
-	b.WriteString(m.form.end.View())
+	content.WriteString(m.form.end.View())
 	if m.formFocusIdx == 3 {
-		b.WriteString(hintStyle.Render("  (↑↓ scroll, ←→ switch)"))
+		content.WriteString(hintStyle.Render("  ↑↓←→"))
 	}
-	b.WriteString("\n")
+	content.WriteString("\n")
 
 	// Location
 	if m.formFocusIdx == 4 {
-		b.WriteString(focusedLabelStyle.Render("Location:"))
+		content.WriteString(focusedLabelStyle.Render("Location"))
 	} else {
-		b.WriteString(labelStyle.Render("Location:"))
+		content.WriteString(labelStyle.Render("Location"))
 	}
-	b.WriteString(m.form.location.View())
-	b.WriteString("\n")
+	content.WriteString(m.form.location.View())
+	content.WriteString("\n")
 
 	// Calendar selector
 	if m.formFocusIdx == 5 {
-		b.WriteString(focusedLabelStyle.Render("Calendar:"))
+		content.WriteString(focusedLabelStyle.Render("Calendar"))
 	} else {
-		b.WriteString(labelStyle.Render("Calendar:"))
+		content.WriteString(labelStyle.Render("Calendar"))
 	}
 
 	calName := "Default"
@@ -991,23 +1056,54 @@ func (m *CalendarApp) renderForm(title string) string {
 	if m.formFocusIdx == 5 {
 		calStyle = calStyle.Background(components.Primary).Foreground(components.Text)
 	}
-	b.WriteString(calStyle.Render(fmt.Sprintf("◀ %s ▶", calName)))
-	b.WriteString("\n\n")
+	content.WriteString(calStyle.Render(fmt.Sprintf("◀ %s ▶", calName)))
 
-	// Error
+	// Error (inside box)
 	if m.err != nil {
 		errStyle := lipgloss.NewStyle().Foreground(components.Danger)
-		b.WriteString(errStyle.Render(fmt.Sprintf("Error: %v", m.err)))
-		b.WriteString("\n\n")
+		content.WriteString("\n\n")
+		content.WriteString(errStyle.Render(fmt.Sprintf("Error: %v", m.err)))
 	}
 
-	// Help
-	helpStyle := lipgloss.NewStyle().Foreground(components.Muted)
-	saveKey := "Ctrl+S"
-	if runtime.GOOS == "darwin" {
-		saveKey = "⌘ + S"
+	// Create bordered box
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(components.Primary).
+		Padding(1, 2).
+		Width(50)
+
+	b.WriteString(boxStyle.Render(content.String()))
+	b.WriteString("\n\n")
+
+	// Save and Cancel buttons - highlight selected one with borders
+	selectedBtn := lipgloss.NewStyle().
+		Bold(true).
+		Border(lipgloss.RoundedBorder()).
+		Padding(0, 2)
+	unselectedBtn := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(components.Muted).
+		Padding(0, 2).
+		Foreground(components.Muted)
+
+	var saveBtn, cancelBtn string
+	if m.formFocusIdx == 6 {
+		saveBtn = selectedBtn.BorderForeground(components.Primary).Background(components.Primary).Foreground(lipgloss.Color("#FFFFFF")).Render("Save")
+	} else {
+		saveBtn = unselectedBtn.Render("Save")
 	}
-	b.WriteString(helpStyle.Render(fmt.Sprintf("Tab: next field  %s: save  Esc: cancel", saveKey)))
+	if m.formFocusIdx == 7 {
+		cancelBtn = selectedBtn.BorderForeground(components.Muted).Background(components.Muted).Foreground(lipgloss.Color("#FFFFFF")).Render("Cancel")
+	} else {
+		cancelBtn = unselectedBtn.Render("Cancel")
+	}
+
+	b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, saveBtn, "  ", cancelBtn))
+	b.WriteString("\n\n")
+
+	// Help hint
+	helpStyle := lipgloss.NewStyle().Foreground(components.Muted)
+	b.WriteString(helpStyle.Render("Tab: cycle • Enter: select • Ctrl+S: save • Esc: cancel"))
 
 	// Wrap with padding
 	formStyle := lipgloss.NewStyle().Padding(1, 2)
@@ -1063,6 +1159,113 @@ func (m *CalendarApp) renderDeleteConfirm() string {
 	return dialogStyle.Render(b.String())
 }
 
+func (m *CalendarApp) renderEventDetail() string {
+	var b strings.Builder
+
+	dayEvents := m.eventsForDate(m.selectedDate)
+	if m.selectedIdx >= len(dayEvents) {
+		return ""
+	}
+	event := dayEvents[m.selectedIdx]
+
+	// Build content for the box
+	var content strings.Builder
+
+	labelStyle := lipgloss.NewStyle().
+		Foreground(components.Muted).
+		Width(11)
+	valueStyle := lipgloss.NewStyle().
+		Foreground(components.Text)
+
+	// Title
+	content.WriteString(labelStyle.Render("Title"))
+	content.WriteString(valueStyle.Bold(true).Render(event.Title))
+	content.WriteString("\n")
+
+	// Date
+	content.WriteString(labelStyle.Render("Date"))
+	content.WriteString(valueStyle.Render(event.StartTime.Format("Monday, January 2, 2006")))
+	content.WriteString("\n")
+
+	// Time
+	var timeStr string
+	if event.AllDay {
+		timeStr = "All day"
+	} else {
+		timeStr = fmt.Sprintf("%s - %s", event.StartTime.Format("3:04 PM"), event.EndTime.Format("3:04 PM"))
+	}
+	content.WriteString(labelStyle.Render("Time"))
+	content.WriteString(valueStyle.Render(timeStr))
+	content.WriteString("\n")
+
+	// Location (if present)
+	if event.Location != "" {
+		content.WriteString(labelStyle.Render("Location"))
+		content.WriteString(valueStyle.Render(event.Location))
+		content.WriteString("\n")
+	}
+
+	// Calendar
+	if event.Calendar != "" {
+		content.WriteString(labelStyle.Render("Calendar"))
+		content.WriteString(valueStyle.Foreground(components.Secondary).Render(event.Calendar))
+		content.WriteString("\n")
+	}
+
+	// Notes (if present)
+	if event.Notes != "" {
+		content.WriteString("\n")
+		content.WriteString(labelStyle.Render("Notes"))
+		content.WriteString(valueStyle.Render(event.Notes))
+	}
+
+	// Create bordered box
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(components.Primary).
+		Padding(1, 2).
+		Width(50)
+
+	b.WriteString(boxStyle.Render(content.String()))
+	b.WriteString("\n\n")
+
+	// Action buttons - highlight selected one
+	selectedBtn := lipgloss.NewStyle().
+		Bold(true).
+		Padding(0, 2)
+	unselectedBtn := lipgloss.NewStyle().
+		Padding(0, 2).
+		Foreground(components.Muted)
+
+	var editBtn, deleteBtn, closeBtn string
+	if m.detailButtonIdx == 0 {
+		editBtn = selectedBtn.Background(components.Primary).Foreground(lipgloss.Color("#FFFFFF")).Render("Edit")
+	} else {
+		editBtn = unselectedBtn.Render("Edit")
+	}
+	if m.detailButtonIdx == 1 {
+		deleteBtn = selectedBtn.Background(components.Danger).Foreground(lipgloss.Color("#FFFFFF")).Render("Delete")
+	} else {
+		deleteBtn = unselectedBtn.Render("Delete")
+	}
+	if m.detailButtonIdx == 2 {
+		closeBtn = selectedBtn.Background(components.Muted).Foreground(lipgloss.Color("#FFFFFF")).Render("Close")
+	} else {
+		closeBtn = unselectedBtn.Render("Close")
+	}
+
+	b.WriteString(editBtn + "  " + deleteBtn + "  " + closeBtn)
+	b.WriteString("\n\n")
+
+	// Help hint
+	hintStyle := lipgloss.NewStyle().Foreground(components.Muted)
+	b.WriteString(hintStyle.Render("←/→ select • enter confirm • esc close"))
+
+	// Wrap with padding
+	detailStyle := lipgloss.NewStyle().Padding(1, 2)
+	return detailStyle.Render(b.String())
+}
+
 func (m *CalendarApp) renderHelpBar() string {
 	helpStyle := lipgloss.NewStyle().Foreground(components.Muted)
 	keyStyle := lipgloss.NewStyle().Bold(true).Foreground(components.Secondary)
@@ -1087,9 +1290,10 @@ func (m *CalendarApp) renderHelpBar() string {
 
 	// Row 2: Actions
 	row2 := []string{
-		keyStyle.Render("n") + " new event",
+		keyStyle.Render("enter") + " view",
+		keyStyle.Render("n") + " new",
 		keyStyle.Render("e") + " edit",
-		keyStyle.Render("x") + " delete",
+		keyStyle.Render("d") + " delete",
 		keyStyle.Render("q") + " quit",
 	}
 
