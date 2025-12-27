@@ -174,7 +174,7 @@ func (m MailList) View() string {
 
 	var b strings.Builder
 
-	visibleHeight := m.height - 4
+	visibleHeight := m.height - 1 // use height directly, SetSize already accounts for chrome
 	if visibleHeight < 1 {
 		visibleHeight = 10
 	}

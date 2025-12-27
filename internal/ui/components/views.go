@@ -148,9 +148,10 @@ func RenderStatusBar(data StatusBarData) string {
 }
 
 func RenderListView(width, height int, listContent string) string {
+	// Don't set fixed Height - let content determine height
+	// The mailList already limits visible rows based on its height
 	return lipgloss.NewStyle().
 		Width(width).
-		Height(height - 8). // header(1) + status bar(2 rows) + padding(5)
 		Render(listContent)
 }
 
