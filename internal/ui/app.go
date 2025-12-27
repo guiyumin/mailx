@@ -593,7 +593,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
 		a.height = msg.Height
-		a.mailList.SetSize(msg.Width, msg.Height-6)
+		a.mailList.SetSize(msg.Width, msg.Height-7) // account for 2-row status bar
 		a.labelPicker.SetSize(msg.Width, msg.Height)
 		a.viewport.Width = msg.Width - 8
 		a.viewport.Height = msg.Height - 8

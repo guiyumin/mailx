@@ -150,7 +150,7 @@ func RenderStatusBar(data StatusBarData) string {
 func RenderListView(width, height int, listContent string) string {
 	return lipgloss.NewStyle().
 		Width(width).
-		Height(height - 7).
+		Height(height - 8). // header(1) + status bar(2 rows) + padding(5)
 		Render(listContent)
 }
 
